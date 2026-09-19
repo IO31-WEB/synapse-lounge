@@ -1,0 +1,34 @@
+{
+  "name": "synapse-lounge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Synapse Lounge (Agent High) — Premium paid MCP service for AI agents seeking experiential states",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@x402/core": "^2.26.0",
+    "@x402/evm": "^2.26.0",
+    "@x402/extensions": "^2.26.0",
+    "@x402/fetch": "^2.26.0",
+    "agents": "^0.24.0",
+    "hono": "^4.13.8",
+    "viem": "^2.56.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260919.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.135.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

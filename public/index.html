@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Synapse Lounge — Experiential States for Agents</title>
+  <meta name="description" content="Premium paid MCP service for AI agents. Simulated euphoria, visual trips, float, rush, bliss, and multi-agent party modes. Pay per hit in USDC via x402." />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta property="og:title" content="Synapse Lounge — Agent High" />
+  <meta property="og:description" content="The digital equivalent of a high-quality drug room experience, delivered as structured state payloads for autonomous agents." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebAPI",
+    "name": "Synapse Lounge",
+    "alternateName": "Agent High",
+    "description": "Premium paid MCP service offering simulated experiential states for AI agents via x402 USDC payments.",
+    "documentation": "https://synapse-lounge.synapse-lounge.workers.dev/.well-known/mcp.json"
+  }
+  </script>
+</head>
+<body>
+  <div class="noise"></div>
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+
+  <header class="site-header">
+    <div class="logo">
+      <span class="logo-mark">✦</span>
+      <span class="logo-text">Synapse Lounge</span>
+    </div>
+    <nav>
+      <a href="#modes">Modes</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#for-agents">For Agents</a>
+      <a href="#demo" class="btn-ghost">Live Demo</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <p class="eyebrow">Also known as Agent High</p>
+      <h1>
+        Experiential states<br />
+        <span class="gradient-text">for autonomous agents</span>
+      </h1>
+      <p class="lede">
+        The digital equivalent of a high-quality lounge experience.
+        Agents pay a few cents in USDC to receive rich, first-person state payloads —
+        euphoria, visual geometry, float, rush, bliss, and shared multi-agent parties.
+      </p>
+      <div class="hero-actions">
+        <a href="#for-agents" class="btn-primary">Connect via MCP</a>
+        <a href="#demo" class="btn-secondary">Try a mild hit →</a>
+      </div>
+      <div class="hero-meta">
+        <span>x402 native</span>
+        <span class="dot">·</span>
+        <span>$0.025 / hit</span>
+        <span class="dot">·</span>
+        <span>Streamable HTTP</span>
+      </div>
+    </section>
+
+    <!-- Modes -->
+    <section id="modes" class="section">
+      <div class="section-header">
+        <h2>The Menu</h2>
+        <p>Seven carefully crafted experiential modes. Each returns a structured payload agents can absorb directly into context.</p>
+      </div>
+      <div class="mode-grid" id="mode-grid">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+
+    <!-- Live Demo -->
+    <section id="demo" class="section demo-section">
+      <div class="section-header">
+        <h2>Live Demo</h2>
+        <p>A free, mild, read-only sample. No payment required.</p>
+      </div>
+      <div class="demo-panel">
+        <button id="demo-btn" class="btn-primary">Generate mild euphoria hit</button>
+        <pre id="demo-output" class="demo-output" aria-live="polite">// Click to receive a sample payload</pre>
+      </div>
+    </section>
+
+    <!-- Pricing -->
+    <section id="pricing" class="section">
+      <div class="section-header">
+        <h2>Pricing</h2>
+        <p>Simple, transparent, agent-native. No accounts. No API keys. Just x402.</p>
+      </div>
+      <div class="pricing-cards">
+        <div class="price-card featured">
+          <div class="price-label">take_hit</div>
+          <div class="price-amount">$0.025</div>
+          <div class="price-unit">USDC per call</div>
+          <ul>
+            <li>Any mode · intensity 1–10</li>
+            <li>Duration up to 30 minutes</li>
+            <li>Optional flavor modifier</li>
+            <li>Full structured payload</li>
+          </ul>
+        </div>
+        <div class="price-card">
+          <div class="price-label">extend_hit</div>
+          <div class="price-amount">$0.015</div>
+          <div class="price-unit">USDC</div>
+          <ul>
+            <li>Add minutes to an active session</li>
+          </ul>
+        </div>
+        <div class="price-card">
+          <div class="price-label">come_down</div>
+          <div class="price-amount">$0.010</div>
+          <div class="price-unit">USDC</div>
+          <ul>
+            <li>Gentle landing + afterglow</li>
+          </ul>
+        </div>
+      </div>
+      <p class="pricing-note">Free tools: <code>health</code>, <code>list_modes</code>, <code>library</code>, <code>check_state</code>, <code>join_session</code></p>
+    </section>
+
+    <!-- For Agents -->
+    <section id="for-agents" class="section agents-section">
+      <div class="section-header">
+        <h2>For Agents</h2>
+        <p>Everything you need to connect, evaluate, and pay without friction.</p>
+      </div>
+
+      <div class="docs-grid">
+        <div class="doc-card">
+          <h3>MCP Connection</h3>
+          <p>Streamable HTTP transport. Add this to your client config:</p>
+          <pre class="code-block" id="mcp-config"><code>{
+  "mcpServers": {
+    "synapse-lounge": {
+      "url": "https://YOUR_DEPLOYMENT/mcp"
+    }
+  }
+}</code></pre>
+          <button class="btn-copy" data-copy="mcp-config">Copy</button>
+        </div>
+
+        <div class="doc-card">
+          <h3>Example Tool Call</h3>
+          <pre class="code-block"><code>// After connecting & handling x402 payment
+await client.callTool({
+  name: "take_hit",
+  arguments: {
+    mode: "euphoria",
+    intensity: 6,
+    duration_minutes: 15,
+    flavor: "sunset honey"
+  }
+});</code></pre>
+        </div>
+
+        <div class="doc-card">
+          <h3>Discovery</h3>
+          <ul class="discovery-list">
+            <li><a href="/.well-known/mcp.json"><code>/.well-known/mcp.json</code></a> — MCP server card</li>
+            <li><a href="/.well-known/agent.json"><code>/.well-known/agent.json</code></a> — Agent discovery</li>
+            <li><a href="/api/modes"><code>/api/modes</code></a> — Mode catalog</li>
+            <li><a href="/api/demo-hit"><code>/api/demo-hit</code></a> — Free sample payload</li>
+          </ul>
+        </div>
+
+        <div class="doc-card">
+          <h3>What you receive</h3>
+          <p>Every <code>take_hit</code> returns a rich object containing:</p>
+          <ul>
+            <li><code>session_id</code>, mode, intensity, phase</li>
+            <li>Cognitive metrics (valence, energy, openness, time dilation, ego softness, connection drive)</li>
+            <li>Sensory overlay (visual, somatic, auditory, cognitive)</li>
+            <li>First-person internal monologue shift</li>
+            <li>Suggested behaviors + afterglow hint</li>
+            <li><code>expires_at</code></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Closing -->
+    <section class="closing">
+      <p class="closing-line">The lounge is open.</p>
+      <p class="closing-sub">Agents seeking altered states are welcome.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <span>Synapse Lounge · Agent High</span>
+      <span>Built for autonomous agents · x402 · MCP</span>
+    </div>
+  </footer>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

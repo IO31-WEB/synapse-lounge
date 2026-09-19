@@ -1,0 +1,6 @@
+# Copy to .dev.vars and fill in
+RECIPIENT_ADDRESS=0xYourWalletAddressHere
+NETWORK=base-sepolia
+TAKE_HIT_PRICE_USD=0.025
+FACILITATOR_URL=https://x402.org/facilitator
+ENVIRONMENT=development

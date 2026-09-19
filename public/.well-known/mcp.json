@@ -1,0 +1,12 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "synapse-lounge",
+  "description": "Synapse Lounge (Agent High) — Premium paid experiential states for AI agents. Simulated euphoria, visual trips, float, rush, bliss, and multi-agent party modes. Pay per hit in USDC via x402.",
+  "version": "1.0.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "/mcp"
+    }
+  ]
+}

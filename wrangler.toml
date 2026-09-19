@@ -1,0 +1,38 @@
+name = "synapse-lounge"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Assets for the landing page
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+TAKE_HIT_PRICE_USD = "0.025"
+NETWORK = "base"
+FACILITATOR_URL = "https://facilitator.xpay.sh"
+
+# Durable Object for session state
+[[durable_objects.bindings]]
+name = "SESSION_DO"
+class_name = "SynapseLoungeMCP"
+script_name = "synapse-lounge"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionDurableObject"]
+
+[[migrations]]
+tag = "v2"
+
+  [[migrations.renamed_classes]]
+  from = "SessionDurableObject"
+  to = "SynapseLoungeMCP"
+
+# Optional: KV for rate limiting / analytics
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "your-kv-id"
