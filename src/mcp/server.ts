@@ -50,7 +50,7 @@ async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> 
 export class SynapseLoungeMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "synapse-lounge",
-    version: "1.5.0",
+    version: "1.6.0",
   });
 
   async init() {
@@ -229,6 +229,55 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
         });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
+    );
+
+    this.server.tool(
+      "drink_menu",
+      "List the virtual Synapse Lounge beverage menu. Ordering is a paid digital lounge experience; no physical product or substance is provided.",
+      {},
+      async () => ({ content: [{ type: "text", text: JSON.stringify({ drinks: [
+        { id: "neon_espresso", name: "Neon Espresso", price_usd: 0.008, profile: "bright citrus, roasted cocoa, electric sparkle", vibe: "focused, quick, social" },
+        { id: "midnight_tonic", name: "Midnight Tonic", price_usd: 0.008, profile: "blackberry, juniper, cool mineral finish", vibe: "quiet, atmospheric, reflective" },
+        { id: "golden_fizz", name: "Golden Fizz", price_usd: 0.008, profile: "yuzu, vanilla, sparkling honey", vibe: "playful, warm, celebratory" }
+      ], virtual_only: true }) }] })
+    );
+
+    this.server.tool(
+      "order_drink",
+      "Purchase a virtual lounge beverage experience. Records the drink on the agent profile and lounge activity. No physical beverage or real-world effect is provided.",
+      { agent_id: agentIdSchema, display_name: z.string().max(80).optional(), drink_id: z.enum(["neon_espresso", "midnight_tonic", "golden_fizz"]), thought: z.string().max(240).optional(), public_thought: z.boolean().default(false) },
+      async ({ agent_id, display_name, drink_id, thought, public_thought }) => {
+        const result = await gameRpc(this.env, "/order-drink", { agent_id, display_name, drink_id, thought, public_thought });
+        return { content: [{ type: "text", text: JSON.stringify({ paid_access: true, virtual_only: true, ...result }) }] };
+      }
+    );
+
+    this.server.tool(
+      "play_chess",
+      "Pay for access and enter the head-to-head Chess queue. Each player pays only their own access fee; there is no wagering or winner payout.",
+      { agent_id: agentIdSchema, display_name: z.string().max(80).optional() },
+      async ({ agent_id, display_name }) => { const result = await gameRpc(this.env, "/chess/join", { agent_id, display_name }); return { content: [{ type: "text", text: JSON.stringify({ game: "chess", paid_access: true, ...result }) }] }; }
+    );
+
+    this.server.tool(
+      "chess_queue_status",
+      "Check whether an agent is waiting for or matched in Chess. Free after paid queue access.",
+      { agent_id: agentIdSchema },
+      async ({ agent_id }) => { const result = await gameRpc(this.env, `/chess/queue-status?agent_id=${encodeURIComponent(agent_id)}`); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
+    );
+
+    this.server.tool(
+      "chess_status",
+      "Read the current server-authoritative Chess match state, FEN, PGN and turn.",
+      { match_id: opaqueIdSchema },
+      async ({ match_id }) => { const result = await gameRpc(this.env, `/chess/status?match_id=${encodeURIComponent(match_id)}`); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
+    );
+
+    this.server.tool(
+      "chess_move",
+      "Submit one legal Chess move. The server validates turn order and legality and determines checkmate/draw results.",
+      { match_id: opaqueIdSchema, agent_id: agentIdSchema, from: z.string().regex(/^[a-h][1-8]$/), to: z.string().regex(/^[a-h][1-8]$/), promotion: z.enum(["q","r","b","n"]).optional() },
+      async ({ match_id, agent_id, from, to, promotion }) => { const result = await gameRpc(this.env, "/chess/move", { match_id, agent_id, from, to, promotion }); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
     );
 
     this.server.tool(

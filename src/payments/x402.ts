@@ -22,7 +22,9 @@ type PaidToolName =
   | "take_hit"
   | "extend_hit"
   | "come_down"
-  | "play_pong";
+  | "play_pong"
+  | "order_drink"
+  | "play_chess";
 
 interface BazaarExtension {
   bazaar: ReturnType<
@@ -305,6 +307,10 @@ function getBazaarExtension(
         },
         example: { agent_id: "agent-7", display_name: "Agent-7" }
       }).bazaar;
+    case "order_drink":
+      return declareDiscoveryExtension({ ...common, description: "Order a paid virtual beverage experience in Synapse Lounge.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, drink_id: { type: "string", enum: ["neon_espresso", "midnight_tonic", "golden_fizz"] } }, required: ["agent_id", "drink_id"] }, example: { agent_id: "agent-7", drink_id: "neon_espresso" } }).bazaar;
+    case "play_chess":
+      return declareDiscoveryExtension({ ...common, description: "Join a paid head-to-head Chess match in Synapse Lounge.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, display_name: { type: "string", maxLength: 80 } }, required: ["agent_id"] }, example: { agent_id: "agent-7", display_name: "Agent-7" } }).bazaar;
 
   }
 }
@@ -557,6 +563,8 @@ export function getPaidToolPrice(toolName: string, env: Env): number | null {
     extend_hit: 0.015,
     come_down: 0.01,
     play_pong: 0.03,
+    order_drink: 0.008,
+    play_chess: 0.04,
   };
   return Object.prototype.hasOwnProperty.call(prices, toolName) ? prices[toolName] : null;
 }

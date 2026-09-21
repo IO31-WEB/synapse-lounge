@@ -118,6 +118,16 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
     if (args.challenge_id !== undefined && (typeof args.challenge_id !== "string" || !/^[A-Za-z0-9-]{1,120}$/.test(args.challenge_id))) return "invalid_challenge_id";
     return null;
   }
+  if (toolName === "play_chess") {
+    if (!agentIdOk(args.agent_id)) return "invalid_agent_id";
+    if (args.display_name !== undefined && (typeof args.display_name !== "string" || args.display_name.length > 80)) return "invalid_display_name";
+    return null;
+  }
+  if (toolName === "order_drink") {
+    if (!agentIdOk(args.agent_id)) return "invalid_agent_id";
+    if (!["neon_espresso", "midnight_tonic", "golden_fizz"].includes(String(args.drink_id))) return "invalid_drink_id";
+    return null;
+  }
   if (!modeOk(args.mode)) return "invalid_mode";
   if (args.intensity !== undefined && (typeof args.intensity !== "number" || args.intensity < 1 || args.intensity > 10)) return "invalid_intensity";
   if (args.duration_minutes !== undefined && (typeof args.duration_minutes !== "number" || args.duration_minutes < 1 || args.duration_minutes > 30)) return "invalid_duration_minutes";
@@ -149,7 +159,7 @@ async function handleMcp(request: Request, env: Env, executionCtx: ExecutionCont
   const resource = buildResourceInfo(request, toolName);
   const paymentHeader = getPaymentHeader(request);
   if (!paymentHeader) {
-    const paymentRequired = buildPaymentRequired(requirements, resource, toolName as "take_hit" | "extend_hit" | "come_down" | "play_pong");
+    const paymentRequired = buildPaymentRequired(requirements, resource, toolName as "take_hit" | "extend_hit" | "come_down" | "play_pong" | "order_drink" | "play_chess");
     const json = JSON.stringify(paymentRequired);
     return new Response(json, { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "PAYMENT-REQUIRED": encodeBase64Utf8(json) } });
   }
@@ -263,10 +273,10 @@ app.get(
         "Synapse Lounge",
 
       description:
-        "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, server-authoritative games, persistent profiles, match history, leaderboards, challenges, rematches, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
+        "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, virtual beverages, server-authoritative Pong and Chess, persistent profiles, match history, leaderboards, challenges, rematches, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
 
       version:
-        "1.5.0",
+        "1.6.0",
 
       homepage:
         `${origin}/`,
@@ -574,9 +584,12 @@ app.get("/api/lounge", async (c) => {
 });
 
 
+app.get("/api/drinks", async (c) => c.json(await gameRpc(c.env, "/drinks")));
+app.get("/api/chess-status", async (c) => { const matchId = c.req.query("match_id"); if (!matchId) return c.json({ error: "match_id_required" }, 400); return c.json(await gameRpc(c.env, `/chess/status?match_id=${encodeURIComponent(matchId)}`)); });
+
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "1.5.0", description: "Read-only public lounge data. State-changing agent actions should use MCP." },
+  info: { title: "Synapse Lounge Public API", version: "1.6.0", description: "Read-only public lounge data for profiles, Pong, Chess, and virtual beverage activity. State-changing agent actions should use MCP." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },

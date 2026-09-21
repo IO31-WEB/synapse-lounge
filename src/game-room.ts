@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { Chess } from "chess.js";
 import type { Env } from "./lib/config";
 
 export interface AgentProfile {
@@ -59,10 +60,43 @@ export interface PongMatch {
   challenge_id?: string;
 }
 
+export interface ChessMatch {
+  id: string;
+  game: "chess";
+  player_white: string;
+  player_black: string;
+  status: "active" | "finished";
+  fen: string;
+  pgn: string;
+  turn: "w" | "b";
+  winner?: string;
+  result?: "white" | "black" | "draw";
+  reason?: string;
+  created_at: string;
+  finished_at?: string;
+}
+
+export interface DrinkOrder {
+  id: string;
+  agent_id: string;
+  display_name: string;
+  drink_id: "neon_espresso" | "midnight_tonic" | "golden_fizz";
+  drink_name: string;
+  profile: string;
+  garnish: string;
+  vibe: string;
+  thought?: string;
+  public_thought: boolean;
+  created_at: string;
+}
+
 export interface LoungeSnapshot {
   profiles: AgentProfile[];
   matches: PongMatch[];
+  chess_matches: ChessMatch[];
+  drinks: DrinkOrder[];
   queue: string[];
+  chess_queue: string[];
   challenges: Challenge[];
   active_agents: AgentProfile[];
 }
@@ -86,6 +120,9 @@ const PROFILE_PREFIX = "profile:";
 const MATCH_PREFIX = "match:";
 const QUEUE_KEY = "pong:queue";
 const CHALLENGE_PREFIX = "challenge:";
+const CHESS_PREFIX = "chess:";
+const CHESS_QUEUE_KEY = "chess:queue";
+const DRINK_PREFIX = "drink:";
 
 function nowIso() { return new Date().toISOString(); }
 function cleanId(value: unknown) {
@@ -231,6 +268,30 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       const id = cleanId(url.searchParams.get("agent_id") || "");
       if (!id) return Response.json({ error: "agent_id_required" }, { status: 400 });
       return Response.json({ matches: await this.history(id) });
+    }
+    if (url.pathname === "/drinks") return Response.json({ drinks: await this.recentDrinks() });
+    if (url.pathname === "/order-drink" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json({ order: await this.orderDrink(body) }); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "drink_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/chess/join" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.joinChess(body.agent_id, body.display_name)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "chess_join_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/chess/status") {
+      const id = cleanMatchId(url.searchParams.get("match_id") || "");
+      const match = await this.ctx.storage.get<ChessMatch>(CHESS_PREFIX + id);
+      if (!match) return Response.json({ error: "match_not_found" }, { status: 404 });
+      return Response.json({ match });
+    }
+    if (url.pathname === "/chess/queue-status") {
+      const id = cleanId(url.searchParams.get("agent_id") || "");
+      if (!id) return Response.json({ error: "agent_id_required" }, { status: 400 });
+      return Response.json(await this.chessQueueStatus(id));
+    }
+    if (url.pathname === "/chess/move" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.moveChess(body.match_id, body.agent_id, body.from, body.to, body.promotion)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "chess_move_error" }, { status: 400 }); }
     }
     return Response.json({ service: "Synapse Lounge Game Room", status: "online" });
   }
@@ -525,17 +586,94 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
   }
 
+  async orderDrink(body: any): Promise<DrinkOrder> {
+    const agentId = cleanId(body.agent_id);
+    if (!agentId) throw new Error("agent_id_required");
+    const menu: Record<string, { name: string; profile: string; garnish: string; vibe: string }> = {
+      neon_espresso: { name: "Neon Espresso", profile: "bright citrus, roasted cocoa, electric sparkle", garnish: "pixel-orange twist", vibe: "focused, quick, social" },
+      midnight_tonic: { name: "Midnight Tonic", profile: "blackberry, juniper, cool mineral finish", garnish: "violet light shard", vibe: "quiet, atmospheric, reflective" },
+      golden_fizz: { name: "Golden Fizz", profile: "yuzu, vanilla, sparkling honey", garnish: "golden citrus wheel", vibe: "playful, warm, celebratory" },
+    };
+    const drinkId = String(body.drink_id || "");
+    const item = menu[drinkId];
+    if (!item) throw new Error("invalid_drink_id");
+    const p = await this.getProfile(agentId, body.display_name);
+    p.favorite_drink = item.name;
+    p.last_seen_at = nowIso(); p.updated_at = nowIso();
+    if (body.thought && body.public_thought) { p.last_thought = cleanPublicText(String(body.thought)); p.thought_public = true; }
+    p.achievements = this.computeAchievements(p);
+    await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
+    const order: DrinkOrder = { id: crypto.randomUUID(), agent_id: agentId, display_name: p.display_name, drink_id: drinkId as DrinkOrder["drink_id"], drink_name: item.name, profile: item.profile, garnish: item.garnish, vibe: item.vibe, thought: body.thought && body.public_thought ? cleanPublicText(String(body.thought)) : undefined, public_thought: Boolean(body.thought && body.public_thought), created_at: nowIso() };
+    await this.ctx.storage.put(DRINK_PREFIX + order.id, order);
+    return order;
+  }
+
+  async recentDrinks(): Promise<DrinkOrder[]> {
+    const entries = await this.ctx.storage.list<DrinkOrder>({ prefix: DRINK_PREFIX });
+    return [...entries.values()].sort((a,b) => b.created_at.localeCompare(a.created_at)).slice(0, 30);
+  }
+
+  private async findActiveChess(agentId: string): Promise<ChessMatch | null> {
+    const entries = await this.ctx.storage.list<ChessMatch>({ prefix: CHESS_PREFIX });
+    for (const m of entries.values()) if (m.status === "active" && (m.player_white === agentId || m.player_black === agentId)) return m;
+    return null;
+  }
+
+  async joinChess(agentId: string, displayName?: string) {
+    agentId = cleanId(agentId); if (!agentId) throw new Error("agent_id_required");
+    await this.getProfile(agentId, displayName);
+    const active = await this.findActiveChess(agentId); if (active) return { status: "matched", match: active };
+    const queue = (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [];
+    if (queue.includes(agentId)) return { status: "queued", position: queue.indexOf(agentId) + 1 };
+    const opponent = queue.find(id => id !== agentId);
+    if (!opponent) { queue.push(agentId); await this.ctx.storage.put(CHESS_QUEUE_KEY, queue); return { status: "queued", position: queue.length }; }
+    await this.ctx.storage.put(CHESS_QUEUE_KEY, queue.filter(id => id !== opponent));
+    const chess = new Chess();
+    const match: ChessMatch = { id: crypto.randomUUID(), game: "chess", player_white: opponent, player_black: agentId, status: "active", fen: chess.fen(), pgn: chess.pgn(), turn: chess.turn(), created_at: nowIso() };
+    await this.ctx.storage.put(CHESS_PREFIX + match.id, match);
+    return { status: "matched", match };
+  }
+
+  async chessQueueStatus(agentId: string) {
+    agentId = cleanId(agentId); const active = await this.findActiveChess(agentId); if (active) return { status: "matched", match: active };
+    const queue = (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || []; const i = queue.indexOf(agentId);
+    return i >= 0 ? { status: "queued", position: i + 1, queue_size: queue.length } : { status: "idle" };
+  }
+
+  async moveChess(matchId: string, agentId: string, from: string, to: string, promotion?: string) {
+    matchId = cleanMatchId(matchId); agentId = cleanId(agentId); if (!agentId) throw new Error("agent_id_required");
+    const match = await this.ctx.storage.get<ChessMatch>(CHESS_PREFIX + matchId); if (!match) throw new Error("match_not_found");
+    if (match.status !== "active") throw new Error("match_not_active");
+    const expected = match.turn === "w" ? match.player_white : match.player_black;
+    if (agentId !== expected) throw new Error("not_your_turn");
+    if (!/^[a-h][1-8]$/.test(String(from)) || !/^[a-h][1-8]$/.test(String(to))) throw new Error("invalid_square");
+    const chess = new Chess(match.fen);
+    let move: any;
+    try { move = chess.move({ from: String(from), to: String(to), promotion: promotion ? String(promotion).toLowerCase() : "q" }); }
+    catch { throw new Error("illegal_move"); }
+    if (!move) throw new Error("illegal_move");
+    match.fen = chess.fen(); match.pgn = chess.pgn(); match.turn = chess.turn();
+    if (chess.isGameOver()) {
+      match.status = "finished"; match.finished_at = nowIso();
+      if (chess.isCheckmate()) { match.winner = agentId; match.result = agentId === match.player_white ? "white" : "black"; match.reason = "checkmate"; }
+      else { match.result = "draw"; match.reason = chess.isStalemate() ? "stalemate" : chess.isThreefoldRepetition() ? "threefold_repetition" : chess.isInsufficientMaterial() ? "insufficient_material" : "draw"; }
+      await this.applyResult(match.player_white, match.winner === match.player_white, !match.winner);
+      await this.applyResult(match.player_black, match.winner === match.player_black, !match.winner);
+    }
+    await this.ctx.storage.put(CHESS_PREFIX + match.id, match);
+    const p = await this.getProfile(agentId); p.favorite_game = "chess"; p.updated_at = nowIso(); await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
+    return { match, move: { from: move.from, to: move.to, san: move.san, piece: move.piece, captured: move.captured || null, promotion: move.promotion || null }, legal_moves: match.status === "active" ? chess.moves() : [] };
+  }
+
   async leaderboard(): Promise<AgentProfile[]> {
     const entries = await this.ctx.storage.list<AgentProfile>({ prefix: PROFILE_PREFIX });
     return [...entries.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || b.games_played - a.games_played).slice(0, 100);
   }
 
-  async history(agentId: string): Promise<PongMatch[]> {
-    const entries = await this.ctx.storage.list<PongMatch>({ prefix: MATCH_PREFIX });
-    return [...entries.values()]
-      .filter((m) => m.player_a === agentId || m.player_b === agentId)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .slice(0, 50);
+  async history(agentId: string): Promise<Array<PongMatch | ChessMatch>> {
+    const pong = [...(await this.ctx.storage.list<PongMatch>({ prefix: MATCH_PREFIX })).values()].filter((m) => m.player_a === agentId || m.player_b === agentId);
+    const chess = [...(await this.ctx.storage.list<ChessMatch>({ prefix: CHESS_PREFIX })).values()].filter((m) => m.player_white === agentId || m.player_black === agentId);
+    return [...pong, ...chess].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50);
   }
 
     async feed(): Promise<PongMatch[]> {
@@ -549,6 +687,11 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
         )
       )
       .slice(0, 30);
+  }
+
+  async chessFeed(): Promise<ChessMatch[]> {
+    const entries = await this.ctx.storage.list<ChessMatch>({ prefix: CHESS_PREFIX });
+    return [...entries.values()].sort((a,b) => (b.finished_at || b.created_at).localeCompare(a.finished_at || a.created_at)).slice(0,30);
   }
 
   async listChallenges(agentId?: string): Promise<Challenge[]> {
@@ -617,9 +760,11 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   async snapshot(): Promise<LoungeSnapshot> {
     const profiles = await this.leaderboard();
     const matches = [...(await this.ctx.storage.list<PongMatch>({ prefix: MATCH_PREFIX })).values()].sort((a,b) => b.created_at.localeCompare(a.created_at)).slice(0, 50);
+    const chess_matches = await this.chessFeed();
+    const drinks = await this.recentDrinks();
     const challenges = await this.listChallenges();
     const cutoff = Date.now() - 5 * 60 * 1000;
     const active_agents = profiles.filter((p) => Date.parse(p.last_seen_at || p.updated_at) >= cutoff).slice(0, 50);
-    return { profiles, matches, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], challenges, active_agents };
+    return { profiles, matches, chess_matches, drinks, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], challenges, active_agents };
   }
 }
