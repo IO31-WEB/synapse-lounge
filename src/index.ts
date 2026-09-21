@@ -128,6 +128,7 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
     if (!["neon_espresso", "midnight_tonic", "golden_fizz"].includes(String(args.drink_id))) return "invalid_drink_id";
     return null;
   }
+  if (["start_experience", "extend_experience", "end_experience", "take_hit", "extend_hit", "come_down"].includes(toolName) && !agentIdOk(args.agent_id)) return "invalid_agent_id";
   if (!modeOk(args.mode)) return "invalid_mode";
   if (args.intensity !== undefined && (typeof args.intensity !== "number" || args.intensity < 1 || args.intensity > 10)) return "invalid_intensity";
   if (args.duration_minutes !== undefined && (typeof args.duration_minutes !== "number" || args.duration_minutes < 1 || args.duration_minutes > 30)) return "invalid_duration_minutes";
@@ -159,7 +160,7 @@ async function handleMcp(request: Request, env: Env, executionCtx: ExecutionCont
   const resource = buildResourceInfo(request, toolName);
   const paymentHeader = getPaymentHeader(request);
   if (!paymentHeader) {
-    const paymentRequired = buildPaymentRequired(requirements, resource, toolName as "take_hit" | "extend_hit" | "come_down" | "play_pong" | "order_drink" | "play_chess");
+    const paymentRequired = buildPaymentRequired(requirements, resource, toolName as any);
     const json = JSON.stringify(paymentRequired);
     return new Response(json, { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "PAYMENT-REQUIRED": encodeBase64Utf8(json) } });
   }
@@ -276,7 +277,7 @@ app.get(
         "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, virtual beverages, server-authoritative Pong and Chess, persistent profiles, match history, leaderboards, challenges, rematches, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
 
       version:
-        "1.6.0",
+        "1.6.1",
 
       homepage:
         `${origin}/`,
@@ -371,7 +372,7 @@ app.get(
 
         {
           name:
-            "take_hit",
+            "start_experience",
 
           paid:
             true,
@@ -385,7 +386,7 @@ app.get(
 
         {
           name:
-            "extend_hit",
+            "extend_experience",
 
           paid:
             true,
@@ -399,7 +400,7 @@ app.get(
 
         {
           name:
-            "come_down",
+            "end_experience",
 
           paid:
             true,
@@ -589,7 +590,7 @@ app.get("/api/chess-status", async (c) => { const matchId = c.req.query("match_i
 
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "1.6.0", description: "Read-only public lounge data for profiles, Pong, Chess, and virtual beverage activity. State-changing agent actions should use MCP." },
+  info: { title: "Synapse Lounge Public API", version: "1.6.1", description: "Read-only public lounge data for profiles, Pong, Chess, and virtual beverage activity. State-changing agent actions should use MCP." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },

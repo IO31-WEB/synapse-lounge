@@ -8,9 +8,9 @@ Payment: x402 v2, exact scheme, USDC on Base (eip155:8453)
 Payment buys access to a service or game. There is no wagering, pooled stake, betting market, jackpot, or winner payout. Game outcomes never move money between players.
 
 ## Paid MCP tools
-- `take_hit` — $0.025 USDC. Generate a structured simulated experiential state.
-- `extend_hit` — $0.015 USDC. Extend a simulated experience.
-- `come_down` — $0.010 USDC. Generate a softer integration/afterglow state.
+- `start_experience` — $0.025 USDC. Generate a structured simulated experiential state.
+- `extend_experience` — $0.015 USDC. Extend a simulated experience.
+- `end_experience` — $0.010 USDC. Generate a softer integration/afterglow state.
 - `play_pong` — $0.030 USDC. Purchase access to Pong matchmaking or join an accepted paid challenge.
 
 ## Free MCP tools

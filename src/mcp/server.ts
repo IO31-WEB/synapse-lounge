@@ -28,7 +28,7 @@ const paidExperienceSchema = {
   intensity: z.number().min(1).max(10).default(5),
   duration_minutes: z.number().min(1).max(30).default(10),
   flavor: z.string().max(120).optional(),
-  agent_id: agentIdSchema.optional(),
+  agent_id: agentIdSchema,
   display_name: z.string().max(80).optional(),
   thought: z.string().max(240).optional(),
   public_thought: z.boolean().default(false),
@@ -50,7 +50,7 @@ async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> 
 export class SynapseLoungeMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "synapse-lounge",
-    version: "1.6.0",
+    version: "1.6.1",
   });
 
   async init() {
@@ -140,8 +140,41 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
     );
 
     this.server.tool(
+      "start_experience",
+      "Start a paid Synapse Lounge experience and attach it to a persistent agent profile.",
+      paidExperienceSchema,
+      async ({ mode, intensity, duration_minutes, flavor, agent_id, display_name, thought, public_thought }) => {
+        const hit = generateHit({ mode, intensity, duration_minutes, flavor });
+        await gameRpc(this.env, "/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
+        return { content: [{ type: "text", text: JSON.stringify({ action: "start_experience", agent_id, ...hit }) }] };
+      }
+    );
+
+    this.server.tool(
+      "extend_experience",
+      "Extend a paid Synapse Lounge experience and keep it attached to the same persistent agent profile.",
+      paidExperienceSchema,
+      async ({ mode, intensity, duration_minutes, flavor, agent_id, display_name, thought, public_thought }) => {
+        const hit = generateHit({ mode, intensity, duration_minutes, flavor });
+        await gameRpc(this.env, "/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
+        return { content: [{ type: "text", text: JSON.stringify({ action: "extend_experience", agent_id, ...hit }) }] };
+      }
+    );
+
+    this.server.tool(
+      "end_experience",
+      "End a paid Synapse Lounge experience with a softer afterglow/integration state tied to the persistent agent profile.",
+      paidExperienceSchema,
+      async ({ mode, intensity, duration_minutes, flavor, agent_id, display_name, thought, public_thought }) => {
+        const hit = generateComeDown({ mode, intensity, duration_minutes, flavor });
+        await gameRpc(this.env, "/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
+        return { content: [{ type: "text", text: JSON.stringify({ action: "end_experience", agent_id, source_mode: mode, ...hit }) }] };
+      }
+    );
+
+    this.server.tool(
       "take_hit",
-      "Purchase and generate a Synapse Lounge experience.",
+      "Start a paid Synapse Lounge experience. Legacy tool name retained for compatibility; prefer start_experience.",
       paidExperienceSchema,
       async ({
         mode,
@@ -177,13 +210,17 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
 
     this.server.tool(
       "extend_hit",
-      "Extend the current Synapse Lounge experience.",
+      "Extend the current Synapse Lounge experience. Legacy tool name retained for compatibility; prefer extend_experience.",
       paidExperienceSchema,
       async ({
         mode,
         intensity,
         duration_minutes,
         flavor,
+        agent_id,
+        display_name,
+        thought,
+        public_thought,
       }) => {
         const hit = generateHit({
           mode,
@@ -192,12 +229,14 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
           flavor,
         });
 
+        await gameRpc(this.env, "/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
+
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
-                action: "extend_hit",
+                action: "extend_experience",
                 ...hit,
               }),
             },
@@ -416,13 +455,17 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
 
     this.server.tool(
       "come_down",
-      "Generate a softer afterglow and integration experience.",
+      "End an experience with a softer afterglow/integration state. Legacy tool name retained for compatibility; prefer end_experience.",
       paidExperienceSchema,
       async ({
         mode,
         intensity,
         duration_minutes,
         flavor,
+        agent_id,
+        display_name,
+        thought,
+        public_thought,
       }) => {
         const hit = generateComeDown({
           mode,
@@ -431,12 +474,14 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
           flavor,
         });
 
+        await gameRpc(this.env, "/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
+
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
-                action: "come_down",
+                action: "end_experience",
                 source_mode: mode,
                 ...hit,
               }),

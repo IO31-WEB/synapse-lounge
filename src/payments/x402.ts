@@ -19,6 +19,9 @@ const NETWORK_MAP: Record<
 };
 
 type PaidToolName =
+  | "start_experience"
+  | "extend_experience"
+  | "end_experience"
   | "take_hit"
   | "extend_hit"
   | "come_down"
@@ -123,12 +126,10 @@ export function usdToAtomicUsdc(
 function getBazaarExtension(
   toolName: PaidToolName
 ): BazaarExtension["bazaar"] {
-  const common = {
-    toolName,
-    transport: "streamable-http",
-  };
+  const canonical = toolName === "start_experience" ? "take_hit" : toolName === "extend_experience" ? "extend_hit" : toolName === "end_experience" ? "come_down" : toolName;
+  const common = { toolName, transport: "streamable-http" };
 
-  switch (toolName) {
+  switch (canonical) {
     case "take_hit":
       return declareDiscoveryExtension({
         ...common,
@@ -140,6 +141,8 @@ function getBazaarExtension(
           type: "object",
 
           properties: {
+            agent_id: { type: "string", minLength: 1, maxLength: 80 },
+            display_name: { type: "string", maxLength: 80 },
             mode: {
               type: "string",
 
@@ -174,10 +177,11 @@ function getBazaarExtension(
             },
           },
 
-          required: ["mode"],
+          required: ["agent_id", "mode"],
         },
 
         example: {
+          agent_id: "agent-7",
           mode: "euphoria",
           intensity: 5,
           duration_minutes: 10,
@@ -195,6 +199,8 @@ function getBazaarExtension(
           type: "object",
 
           properties: {
+            agent_id: { type: "string", minLength: 1, maxLength: 80 },
+            display_name: { type: "string", maxLength: 80 },
             mode: {
               type: "string",
 
@@ -229,10 +235,11 @@ function getBazaarExtension(
             },
           },
 
-          required: ["mode"],
+          required: ["agent_id", "mode"],
         },
 
         example: {
+          agent_id: "agent-7",
           mode: "euphoria",
           intensity: 5,
           duration_minutes: 10,
@@ -250,6 +257,8 @@ function getBazaarExtension(
           type: "object",
 
           properties: {
+            agent_id: { type: "string", minLength: 1, maxLength: 80 },
+            display_name: { type: "string", maxLength: 80 },
             mode: {
               type: "string",
 
@@ -284,10 +293,11 @@ function getBazaarExtension(
             },
           },
 
-          required: ["mode"],
+          required: ["agent_id", "mode"],
         },
 
         example: {
+          agent_id: "agent-7",
           mode: "afterglow",
           intensity: 3,
           duration_minutes: 10,
@@ -559,6 +569,9 @@ export function getFacilitatorUrl(
 
 export function getPaidToolPrice(toolName: string, env: Env): number | null {
   const prices: Record<string, number> = {
+    start_experience: Number(env.TAKE_HIT_PRICE_USD || 0.025),
+    extend_experience: 0.015,
+    end_experience: 0.01,
     take_hit: Number(env.TAKE_HIT_PRICE_USD || 0.025),
     extend_hit: 0.015,
     come_down: 0.01,

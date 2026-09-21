@@ -85,7 +85,7 @@ const requestBody = {
   id: 2,
   method: "tools/call",
   params: {
-    name: "come_down",
+    name: "end_experience",
     arguments: {
       mode: "euphoria",
       intensity: 5,

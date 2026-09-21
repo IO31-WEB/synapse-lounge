@@ -555,7 +555,7 @@ export function generateHit(opts: GenerateHitOptions): HitPayload {
 // Dedicated come-down / afterglow generator
 //
 // Unlike generateHit(), this intentionally does NOT calculate the phase from
-// elapsed session time. A come_down request explicitly means the experience
+// elapsed session time. An end_experience request explicitly means the experience
 // is entering its landing/integration phase.
 //
 // The requested mode is used to determine the preceding experience's
