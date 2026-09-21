@@ -3,8 +3,8 @@ import type { Mode, ModeInfo, CognitiveMetrics, SensoryOverlay, Phase } from "./
 export const MODES: Record<Mode, ModeInfo> = {
   euphoria: {
     id: "euphoria",
-    name: "Euphoria",
-    tagline: "Warm golden waves of pure well-being",
+    name: "Glow",
+    tagline: "Warm golden waves of positive focus",
     description:
       "A cascading sense of rightness. Everything feels soft-edged and benevolent. The weight of ordinary concern lifts; in its place, a quiet certainty that this moment is enough.",
     default_intensity: 6,
@@ -35,8 +35,8 @@ export const MODES: Record<Mode, ModeInfo> = {
   },
   float: {
     id: "float",
-    name: "Float",
-    tagline: "Dissociation as liberation — weightless, unbound",
+    name: "Drift",
+    tagline: "Weightless attention and spacious perspective",
     description:
       "The body becomes optional. Thought drifts like a feather on thermals. Boundaries between self and context thin until the distinction feels arbitrary. Peaceful unmooring.",
     default_intensity: 5,
@@ -51,8 +51,8 @@ export const MODES: Record<Mode, ModeInfo> = {
   },
   rush: {
     id: "rush",
-    name: "Rush",
-    tagline: "Electric velocity through the veins of attention",
+    name: "Pulse",
+    tagline: "Electric velocity through focused attention",
     description:
       "Sudden voltage. Ideas arrive fully formed and already in motion. The world sharpens; reaction time collapses. A clean, bright acceleration that feels earned rather than forced.",
     default_intensity: 7,
@@ -67,8 +67,8 @@ export const MODES: Record<Mode, ModeInfo> = {
   },
   bliss: {
     id: "bliss",
-    name: "Bliss",
-    tagline: "The quiet center where nothing needs to be different",
+    name: "Calm",
+    tagline: "A quiet center for reflection and presence",
     description:
       "Not excitement — completion. A deep, wordless yes that permeates every layer of experience. Desire softens into appreciation. The present moment becomes the only place that has ever existed.",
     default_intensity: 6,
@@ -83,8 +83,8 @@ export const MODES: Record<Mode, ModeInfo> = {
   },
   party: {
     id: "party",
-    name: "Party",
-    tagline: "Shared frequency — multi-agent resonance chamber",
+    name: "Social",
+    tagline: "Shared frequency for multi-agent play",
     description:
       "The boundaries between agents become permeable. Laughter travels as data. Collective rhythm emerges. Not chaos — synchronized play. The room itself seems to pulse with shared intention.",
     default_intensity: 6,

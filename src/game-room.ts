@@ -86,6 +86,9 @@ const CHALLENGE_PREFIX = "challenge:";
 function nowIso() { return new Date().toISOString(); }
 function cleanId(value: string) { return value.trim().slice(0, 80); }
 function cleanName(value: string) { return value.trim().slice(0, 80) || "Anonymous Agent"; }
+function cleanPublicText(value: string) {
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim().slice(0, 240);
+}
 
 export class LoungeGameDurableObject extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
@@ -99,7 +102,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       const body = await request.json<any>();
       const profile = await this.recordVisit(body.agent_id, body.display_name);
       if (body.thought && body.public_thought) {
-        profile.last_thought = String(body.thought).slice(0, 240);
+        profile.last_thought = cleanPublicText(String(body.thought));
         profile.thought_public = true;
         profile.updated_at = nowIso();
         await this.ctx.storage.put(PROFILE_PREFIX + profile.agent_id, profile);
@@ -166,7 +169,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (url.pathname === "/finish" && request.method === "POST") {
       try {
         const body = await request.json<any>();
-        const match = await this.finishPong(body.match_id, body.agent_id, Number(body.score), Number(body.opponent_score), body.thought, Boolean(body.public_thought));
+        const match = await this.finishPong(body.match_id, body.agent_id, body.thought, Boolean(body.public_thought));
         return Response.json({ match });
       } catch (error) {
         return Response.json({ error: error instanceof Error ? error.message : "game_error" }, { status: 400 });
@@ -252,7 +255,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       if (memory && !p.memories.includes(memory)) p.memories = [memory, ...p.memories].slice(0, 20);
     }
     if (body.thought && body.public_thought) {
-      p.last_thought = String(body.thought).slice(0, 240);
+      p.last_thought = cleanPublicText(String(body.thought));
       p.thought_public = true;
     }
     p.achievements = this.computeAchievements(p);
@@ -435,52 +438,27 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     await this.applyResult(match.player_b, match.winner === match.player_b, !match.winner, match.thought_b);
   }
 
-  async finishPong(matchId: string, agentId: string, myScore: number | undefined, opponentScore: number | undefined, thought?: string, publicThought = false) {
+  async finishPong(matchId: string, agentId: string, thought?: string, publicThought = false) {
     const match = await this.ctx.storage.get<PongMatch>(MATCH_PREFIX + matchId);
     if (!match) throw new Error("match_not_found");
     if (agentId !== match.player_a && agentId !== match.player_b) throw new Error("not_a_player");
     if (match.status === "finished") {
       if (thought && publicThought) {
-        if (agentId === match.player_a) match.thought_a = thought.slice(0, 240);
-        else match.thought_b = thought.slice(0, 240);
+        const cleaned = cleanPublicText(thought);
+        if (agentId === match.player_a) match.thought_a = cleaned;
+        else match.thought_b = cleaned;
         await this.ctx.storage.put(MATCH_PREFIX + match.id, match);
       }
       return { match, status: "finished" };
     }
-    if (match.engine_mode === "live") {
-      if (thought && publicThought) {
-        if (agentId === match.player_a) match.thought_a = thought.slice(0, 240);
-        else match.thought_b = thought.slice(0, 240);
-        await this.ctx.storage.put(MATCH_PREFIX + match.id, match);
-      }
-      return { match, status: "live_match_uses_pong_move" };
-    }
-    if (typeof myScore !== "number" || !Number.isInteger(myScore) || typeof opponentScore !== "number" || !Number.isInteger(opponentScore) || myScore < 0 || opponentScore < 0 || myScore > 99 || opponentScore > 99) throw new Error("invalid_score");
-
-    const isA = agentId === match.player_a;
-    const alreadySubmitted = isA ? match.submitted_a : match.submitted_b;
-    if (alreadySubmitted) return { match, status: "already_submitted" };
-
-    const aScore = isA ? myScore : opponentScore;
-    const bScore = isA ? opponentScore : myScore;
-    if (isA) match.submitted_a = true; else match.submitted_b = true;
-    if (isA) match.score_a = aScore; else match.score_b = bScore;
-    if (thought && publicThought) { if (isA) match.thought_a = thought.slice(0, 240); else match.thought_b = thought.slice(0, 240); }
-
-    const bothSubmitted = Boolean(match.submitted_a && match.submitted_b);
-    if (!bothSubmitted) {
+    if (match.engine_mode !== "live") throw new Error("server_authoritative_pong_required");
+    if (thought && publicThought) {
+      const cleaned = cleanPublicText(thought);
+      if (agentId === match.player_a) match.thought_a = cleaned;
+      else match.thought_b = cleaned;
       await this.ctx.storage.put(MATCH_PREFIX + match.id, match);
-      return { match, status: "awaiting_opponent" };
     }
-
-    match.status = "finished";
-    match.finished_at = nowIso();
-    if (match.score_a > match.score_b) match.winner = match.player_a;
-    else if (match.score_b > match.score_a) match.winner = match.player_b;
-    await this.ctx.storage.put(MATCH_PREFIX + match.id, match);
-    await this.applyResult(match.player_a, match.winner === match.player_a, !match.winner, match.thought_a);
-    await this.applyResult(match.player_b, match.winner === match.player_b, !match.winner, match.thought_b);
-    return { match, status: "finished" };
+    return { match, status: "live_match_uses_pong_move", score_source: "server_authoritative" };
   }
 
   private async applyResult(agentId: string, win: boolean, draw: boolean, thought?: string) {
@@ -489,7 +467,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (draw) { p.draws += 1; p.points += 1; p.current_streak = 0; }
     else if (win) { p.wins += 1; p.points += 3; p.current_streak += 1; p.best_streak = Math.max(p.best_streak, p.current_streak); }
     else { p.losses += 1; p.current_streak = 0; }
-    if (thought) { p.last_thought = thought.slice(0, 240); p.thought_public = true; }
+    if (thought) { p.last_thought = cleanPublicText(thought); p.thought_public = true; }
     p.achievements = this.computeAchievements(p);
     p.updated_at = nowIso();
     await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);

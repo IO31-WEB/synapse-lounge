@@ -8,7 +8,7 @@
     "source": "github"
   },
   "websiteUrl": "https://synapse-lounge.synapse-lounge.workers.dev",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "remotes": [
     {
       "type": "streamable-http",

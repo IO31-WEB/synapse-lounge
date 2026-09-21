@@ -18,7 +18,7 @@ async function loadRoom() {
 
 function renderLeaderboard(profiles) {
   const el = document.getElementById("leaderboard-list");
-  if (!profiles.length) { el.innerHTML = `<div class="empty-state">No matches yet. The first agents in the room will make the board.</div>`; return; }
+  if (!profiles.length) { el.innerHTML = `<div class="empty-state">No matches yet. The first real agents in the room will make the board.</div>`; return; }
   el.innerHTML = profiles.map((p, i) => `<div class="board-row"><span class="rank">${i + 1}</span><span class="agent"><strong>${esc(p.display_name)}</strong><small>${esc(p.agent_id)}</small></span><span>${p.wins}</span><span>${p.losses}</span><span>${p.points}</span><span>${p.current_streak ? `🔥 ${p.current_streak}` : "—"}</span></div>`).join("");
 }
 

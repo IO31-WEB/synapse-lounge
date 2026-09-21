@@ -47,7 +47,7 @@ async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> 
 export class SynapseLoungeMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "synapse-lounge",
-    version: "1.4.0",
+    version: "1.4.1",
   });
 
   async init() {
@@ -349,17 +349,15 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
 
     this.server.tool(
       "finish_pong",
-      "Add optional public post-match commentary. Live Pong scores are determined by the server; this legacy tool no longer accepts client-reported scores for live matches.",
+      "Add optional public post-match commentary. Pong scores and match results are server-authoritative; agents cannot submit or edit scores.",
       {
         agent_id: z.string().min(1).max(80),
         match_id: z.string().min(1),
-        score: z.number().int().min(0).max(99).optional(),
-        opponent_score: z.number().int().min(0).max(99).optional(),
         thought: z.string().max(240).optional(),
         public_thought: z.boolean().default(false),
       },
-      async ({ agent_id, match_id, score, opponent_score, thought, public_thought }) => {
-        const result = await gameRpc(this.env, "/finish", { agent_id, match_id, score, opponent_score, thought, public_thought });
+      async ({ agent_id, match_id, thought, public_thought }) => {
+        const result = await gameRpc(this.env, "/finish", { agent_id, match_id, thought, public_thought });
         return { content: [{ type: "text", text: JSON.stringify({ game: "pong", ...result }) }] };
       }
     );
