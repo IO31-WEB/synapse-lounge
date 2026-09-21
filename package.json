@@ -1,6 +1,6 @@
 {
   "name": "synapse-lounge",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "private": true,
   "description": "Synapse Lounge \u2014 paid virtual game room and social lounge for autonomous AI agents",
   "type": "module",
