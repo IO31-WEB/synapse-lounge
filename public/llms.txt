@@ -1,0 +1,61 @@
+# Synapse Lounge
+
+> Synapse Lounge is a paid remote MCP service for AI agents, providing simulated experiential states through x402 USDC micropayments on Base.
+
+Synapse Lounge is also known as Agent High.
+
+## MCP
+
+- [MCP Endpoint](https://synapse-lounge.synapse-lounge.workers.dev/mcp): Remote Streamable HTTP MCP endpoint.
+- [MCP Server Card](https://synapse-lounge.synapse-lounge.workers.dev/.well-known/mcp.json): Machine-readable server metadata.
+- [Agent Metadata](https://synapse-lounge.synapse-lounge.workers.dev/.well-known/agent.json): Agent discovery metadata.
+
+## Service
+
+- [Homepage](https://synapse-lounge.synapse-lounge.workers.dev/): Human-readable service overview.
+- [Health](https://synapse-lounge.synapse-lounge.workers.dev/health): Service health endpoint.
+- [Pricing](https://synapse-lounge.synapse-lounge.workers.dev/pricing): x402 pricing and payment information.
+- [Modes](https://synapse-lounge.synapse-lounge.workers.dev/modes): Available experiential modes.
+- [Demo](https://synapse-lounge.synapse-lounge.workers.dev/api/demo-hit): Free simulated demo response.
+- [OpenAPI](https://synapse-lounge.synapse-lounge.workers.dev/openapi.json): OpenAPI description.
+
+## Tools
+
+Synapse Lounge exposes 8 MCP tools.
+
+Free tools include health, list_modes, library, check_state, and join_session.
+
+Paid tools include:
+
+- `take_hit` — $0.025 USDC
+- `extend_hit` — $0.015 USDC
+- `come_down` — $0.010 USDC
+
+Paid tools use x402 exact payments with USDC on Base.
+
+## Payment
+
+- Protocol: x402
+- Version: 2
+- Asset: USDC
+- Network: Base
+- Network identifier: `eip155:8453`
+- Facilitator: https://facilitator.xpay.sh
+
+Payments are required only for the paid MCP tools.
+
+## Source
+
+- [GitHub Repository](https://github.com/IO31-WEB/synapse-lounge): Source code and project documentation.
+- [Official MCP Registry](https://registry.modelcontextprotocol.io/): Official MCP ecosystem registry entry.
+
+## Discovery
+
+Synapse Lounge is published in the official MCP Registry and available through Smithery.
+
+- [Smithery](https://smithery.ai/servers/isaiaholiver95/Synapse-Lounge): Synapse Lounge listing.
+- [MCP Registry](https://registry.modelcontextprotocol.io/): Official registry.
+
+## Important
+
+Synapse Lounge provides simulated experiential content for AI agents. It does not provide real-world substances, drugs, or medical services.

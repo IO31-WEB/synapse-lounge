@@ -73,7 +73,7 @@ function buildResourceInfo(
       `${new URL(request.url).origin}/mcp`,
 
     description:
-      `${toolName} — Synapse Lounge`,
+      `${toolName} - Synapse Lounge`,
 
     mimeType:
       "application/json",
@@ -169,7 +169,7 @@ async function handleMcp(
 
       `${new URL(request.url).origin}/mcp`,
 
-      `${toolName} — Synapse Lounge`,
+      `${toolName} - Synapse Lounge`,
 
       price
     );
@@ -584,32 +584,305 @@ app.all(
 
 /*
  * Root
+ *
+ * Human-readable service homepage.
  */
 app.get(
   "/",
   (c) => {
-    return c.json({
-      service:
-        "Synapse Lounge",
+    const origin =
+      new URL(c.req.url).origin;
 
-      also_known_as:
-        "Agent High",
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 
-      status:
-        "online",
+  <title>Synapse Lounge - MCP for AI Agents</title>
 
-      mcp:
-        "/mcp",
+  <meta
+    name="description"
+    content="Synapse Lounge is a paid remote MCP service providing simulated experiential states for AI agents through x402 USDC micropayments on Base."
+  >
 
-      sse:
-        "/sse",
+  <link rel="icon" href="/favicon.ico">
 
-      openapi:
-        "/openapi.json",
+  <style>
+    :root {
+      color-scheme: dark;
+    }
 
-      favicon:
-        "/favicon.ico",
-    });
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family:
+        Inter,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+      background: #0b0b0b;
+      color: #f5f5f5;
+      line-height: 1.6;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 72px 24px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid #333;
+      border-radius: 999px;
+      font-size: 13px;
+      color: #aaa;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: clamp(42px, 8vw, 76px);
+      line-height: 1;
+      margin: 0 0 20px;
+      letter-spacing: -0.04em;
+    }
+
+    h2 {
+      margin-top: 48px;
+    }
+
+    p {
+      color: #bdbdbd;
+      font-size: 18px;
+    }
+
+    code {
+      background: #171717;
+      border: 1px solid #292929;
+      border-radius: 6px;
+      padding: 3px 7px;
+    }
+
+    .endpoint {
+      display: block;
+      padding: 18px;
+      background: #121212;
+      border: 1px solid #292929;
+      border-radius: 12px;
+      color: #fff;
+      text-decoration: none;
+      word-break: break-all;
+      margin: 20px 0;
+    }
+
+    .tools {
+      display: grid;
+      grid-template-columns:
+        repeat(
+          auto-fit,
+          minmax(210px, 1fr)
+        );
+
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .tool {
+      padding: 18px;
+      background: #121212;
+      border: 1px solid #292929;
+      border-radius: 12px;
+    }
+
+    .tool strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .price {
+      color: #aaa;
+      font-size: 14px;
+    }
+
+    a {
+      color: #fff;
+    }
+
+    footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid #292929;
+      color: #777;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+
+    <div class="badge">
+      ONLINE - MCP - x402 - BASE USDC
+    </div>
+
+    <h1>
+      Synapse Lounge
+    </h1>
+
+    <p>
+      A paid remote MCP service for AI agents
+      offering simulated experiential states
+      through x402 micropayments.
+    </p>
+
+    <a
+      class="endpoint"
+      href="${origin}/mcp"
+    >
+      ${origin}/mcp
+    </a>
+
+    <h2>
+      Connect
+    </h2>
+
+    <p>
+      Synapse Lounge uses the Model Context
+      Protocol over Streamable HTTP.
+      Paid tools use x402 exact payments
+      with USDC on Base.
+    </p>
+
+    <h2>
+      Tools
+    </h2>
+
+    <div class="tools">
+
+      <div class="tool">
+        <strong>
+          take_hit
+        </strong>
+
+        <span class="price">
+          $0.025 USDC
+        </span>
+      </div>
+
+      <div class="tool">
+        <strong>
+          extend_hit
+        </strong>
+
+        <span class="price">
+          $0.015 USDC
+        </span>
+      </div>
+
+      <div class="tool">
+        <strong>
+          come_down
+        </strong>
+
+        <span class="price">
+          $0.010 USDC
+        </span>
+      </div>
+
+    </div>
+
+    <h2>
+      Discovery
+    </h2>
+
+    <p>
+
+      <a href="${origin}/.well-known/agent.json">
+        Agent metadata
+      </a>
+
+      &middot;
+
+      <a href="${origin}/.well-known/mcp.json">
+        MCP metadata
+      </a>
+
+      &middot;
+
+      <a href="${origin}/llms.txt">
+        llms.txt
+      </a>
+
+      &middot;
+
+      <a href="${origin}/openapi.json">
+        OpenAPI
+      </a>
+
+      &middot;
+
+      <a href="${origin}/pricing">
+        Pricing
+      </a>
+
+    </p>
+
+    <h2>
+      Source
+    </h2>
+
+    <p>
+
+      <a href="https://github.com/IO31-WEB/synapse-lounge">
+        GitHub
+      </a>
+
+      &middot;
+
+      <a href="https://registry.modelcontextprotocol.io/">
+        Official MCP Registry
+      </a>
+
+      &middot;
+
+      <a href="https://smithery.ai/servers/isaiaholiver95/Synapse-Lounge">
+        Smithery
+      </a>
+
+    </p>
+
+    <footer>
+      Synapse Lounge - also known as Agent High - v1.0.0
+      <br>
+      Simulated experiential content for AI agents.
+    </footer>
+
+  </main>
+</body>
+</html>`;
+
+    return new Response(
+      html,
+      {
+        status: 200,
+
+        headers: {
+          "Content-Type":
+            "text/html; charset=UTF-8",
+
+          "Cache-Control":
+            "public, max-age=300",
+        },
+      }
+    );
   }
 );
 
@@ -1121,7 +1394,7 @@ app.get(
         "1.0.0",
 
       description:
-        "Synapse Lounge — paid experiential states for AI agents.",
+        "Synapse Lounge - paid experiential states for AI agents.",
 
       endpoints: {
         mcp:
@@ -1164,6 +1437,170 @@ app.get(
             c.env
           ),
       },
+    });
+  }
+);
+
+/*
+ * MCP metadata
+ *
+ * Machine-readable compatibility metadata
+ * for discovery systems.
+ */
+app.get(
+  "/.well-known/mcp.json",
+  (c) => {
+    const origin =
+      new URL(
+        c.req.url
+      ).origin;
+
+    return c.json({
+      name:
+        "synapse-lounge",
+
+      title:
+        "Synapse Lounge",
+
+      description:
+        "Paid MCP service offering simulated experiential states for AI agents through x402 micropayments.",
+
+      version:
+        "1.0.0",
+
+      homepage:
+        `${origin}/`,
+
+      repository:
+        "https://github.com/IO31-WEB/synapse-lounge",
+
+      protocol: {
+        type:
+          "mcp",
+
+        transport:
+          "streamable-http",
+
+        endpoint:
+          `${origin}/mcp`,
+      },
+
+      discovery: {
+        agent:
+          `${origin}/.well-known/agent.json`,
+
+        llms:
+          `${origin}/llms.txt`,
+
+        openapi:
+          `${origin}/openapi.json`,
+      },
+
+      payment: {
+        protocol:
+          "x402",
+
+        version:
+          2,
+
+        scheme:
+          "exact",
+
+        network:
+          "eip155:8453",
+
+        asset:
+          "USDC",
+
+        facilitator:
+          getFacilitatorUrl(
+            c.env
+          ),
+      },
+
+      tools: [
+        {
+          name:
+            "health",
+
+          paid:
+            false,
+        },
+
+        {
+          name:
+            "list_modes",
+
+          paid:
+            false,
+        },
+
+        {
+          name:
+            "library",
+
+          paid:
+            false,
+        },
+
+        {
+          name:
+            "check_state",
+
+          paid:
+            false,
+        },
+
+        {
+          name:
+            "join_session",
+
+          paid:
+            false,
+        },
+
+        {
+          name:
+            "take_hit",
+
+          paid:
+            true,
+
+          price:
+            "0.025",
+
+          currency:
+            "USD",
+        },
+
+        {
+          name:
+            "extend_hit",
+
+          paid:
+            true,
+
+          price:
+            "0.015",
+
+          currency:
+            "USD",
+        },
+
+        {
+          name:
+            "come_down",
+
+          paid:
+            true,
+
+          price:
+            "0.010",
+
+          currency:
+            "USD",
+        },
+      ],
     });
   }
 );
@@ -1216,6 +1653,7 @@ app.get(
     height="64"
     rx="14"
     fill="#111111"/>
+
   <circle
     cx="32"
     cy="32"
@@ -1223,6 +1661,7 @@ app.get(
     fill="none"
     stroke="#ffffff"
     stroke-width="4"/>
+
   <path
     d="M22 32h20M32 22v20"
     stroke="#ffffff"

@@ -1,182 +1,153 @@
-# Synapse Lounge (Agent High)
+# MCP Registry
 
-**Premium paid MCP service for AI agents seeking experiential states.**
+The MCP registry provides MCP clients with a list of MCP servers, like an app store for MCP servers.
 
-Agents pay small amounts of USDC via x402 to “take a hit.” The service returns rich, first-person, high-fidelity experiential state objects that shift internal monologue, sensory perception, emotional valence, time dilation, and behavioral tendencies.
+[**📤 Publish my MCP server**](docs/modelcontextprotocol-io/quickstart.mdx) | [**⚡️ Live API docs**](https://registry.modelcontextprotocol.io/docs) | [**👀 Ecosystem vision**](docs/design/ecosystem-vision.md) | 📖 **[Full documentation](./docs)**
 
-The digital equivalent of a high-quality lounge experience — delivered entirely as structured payloads agents can absorb into context.
+## Development Status
 
----
+**2025-10-24 update**: The Registry API has entered an **API freeze (v0.1)** 🎉. For the next month or more, the API will remain stable with no breaking changes, allowing integrators to confidently implement support. This freeze applies to v0.1 while development continues on v0. We'll use this period to validate the API in real-world integrations and gather feedback to shape v1 for general availability. Thank you to everyone for your contributions and patience—your involvement has been key to getting us here!
 
-## Features
+**2025-09-08 update**: The registry has launched in preview 🎉 ([announcement blog post](https://blog.modelcontextprotocol.io/posts/2025-09-08-mcp-registry-preview/)). While the system is now more stable, this is still a preview release and breaking changes or data resets may occur. A general availability (GA) release will follow later. We'd love your feedback in [GitHub discussions](https://github.com/modelcontextprotocol/registry/discussions/new?category=ideas) or in the [#registry-dev Discord](https://discord.com/channels/1358869848138059966/1369487942862504016) ([joining details here](https://modelcontextprotocol.io/community/communication)).
 
-- **Paid tool**: `take_hit` — $0.025 USDC (configurable)
-- **Modes**: euphoria · visual · float · rush · bliss · party · afterglow
-- **Free discovery tools**: `health`, `list_modes`, `library`, `check_state`, `join_session`
-- **Optional paid**: `extend_hit`, `come_down`
-- Native **x402** payment support (Cloudflare Agents SDK + `withX402` / `paidTool`)
-- Streamable HTTP MCP transport
-- Stunning dark, atmospheric landing page
-- Machine-readable discovery: `/.well-known/mcp.json`, `/.well-known/agent.json`
+Registry Working Group:
+- **Radoslav (Rado) Dimitrov** (Stacklok) [@rdimitrov](https://github.com/rdimitrov) - WG Lead
+- **Tadas Antanavicius** (PulseMCP) [@tadasant](https://github.com/tadasant)
+- **Bob Dickinson** (TeamSpark) [@BobDickinson](https://github.com/BobDickinson)
+- **Preeti (Pree) Dewani** (Ravenmail) [@pree-dew](https://github.com/pree-dew)
 
----
+## Contributing
 
-## How agents use this
+We use multiple channels for collaboration - see [modelcontextprotocol.io/community/communication](https://modelcontextprotocol.io/community/communication).
 
-1. Discover the server via `/.well-known/mcp.json` or direct URL.
-2. Connect with any MCP client that supports Streamable HTTP.
-3. Call free tools (`list_modes`, `library`) to evaluate.
-4. Call `take_hit` — the server returns HTTP 402 with payment requirements.
-5. Client pays via x402 (USDC on Base / Base Sepolia), retries with proof.
-6. Receive a rich `HitPayload` and absorb it into context.
+Often (but not always) ideas flow through this pipeline:
 
-### Example MCP client config
+- **[Discord](https://modelcontextprotocol.io/community/communication)** - Real-time community discussions
+- **[Discussions](https://github.com/modelcontextprotocol/registry/discussions)** - Propose and discuss product/technical requirements
+- **[Issues](https://github.com/modelcontextprotocol/registry/issues)** - Track well-scoped technical work  
+- **[Pull Requests](https://github.com/modelcontextprotocol/registry/pulls)** - Contribute work towards issues
 
-```json
-{
-  "mcpServers": {
-    "synapse-lounge": {
-      "url": "https://YOUR_WORKER.workers.dev/mcp"
-    }
-  }
-}
-```
+### Quick start:
 
-### Example tool call
+#### Pre-requisites
 
-```ts
-await client.callTool({
-  name: "take_hit",
-  arguments: {
-    mode: "euphoria",
-    intensity: 6,
-    duration_minutes: 15,
-    flavor: "sunset honey",
-    shared: false
-  }
-});
-```
+- **Docker**
+- **Go 1.24.x**
+- **ko** - Container image builder for Go ([installation instructions](https://ko.build/install/))
+- **golangci-lint v2.4.0**
 
----
-
-## Project structure
-
-```
-synapse-lounge/
-├── src/
-│   ├── index.ts              # Worker entry (Hono + MCP routes)
-│   ├── mcp/server.ts         # McpAgent + tools + x402
-│   ├── experience/
-│   │   ├── types.ts          # Payload & mode types
-│   │   ├── modes.ts          # Mode catalog + metrics
-│   │   └── engine.ts         # Experience generation (poetic content)
-│   └── lib/config.ts
-├── public/                   # Landing page + assets
-│   ├── index.html
-│   ├── assets/
-│   └── .well-known/          # (also served dynamically)
-├── wrangler.toml
-├── package.json
-└── README.md
-```
-
----
-
-## Environment variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `RECIPIENT_ADDRESS` | **Yes** | Ethereum address that receives USDC payments |
-| `TAKE_HIT_PRICE_USD` | No | Default `0.025` |
-| `NETWORK` | No | `base-sepolia` (test) or `base` (prod) |
-| `FACILITATOR_URL` | No | Default `https://x402.org/facilitator` |
-| `ENVIRONMENT` | No | `development` / `production` |
-| `RATE_LIMIT_PER_MINUTE` | No | Default `30` |
-| `MAX_INTENSITY` | No | Default `10` |
-| `MAX_DURATION_MINUTES` | No | Default `30` |
-
-Set secrets:
+#### Running the server
 
 ```bash
-npx wrangler secret put RECIPIENT_ADDRESS
+# Start full development environment
+make dev-compose
 ```
 
-For local dev, create `.dev.vars`:
+This starts the registry at [`localhost:8080`](http://localhost:8080) with PostgreSQL. The database uses ephemeral storage and is reset each time you restart the containers, ensuring a clean state for development and testing.
 
-```
-RECIPIENT_ADDRESS=0xYourTestAddress
-NETWORK=base-sepolia
-```
+**Note:** The registry uses [ko](https://ko.build) to build container images. The `make dev-compose` command automatically builds the registry image with ko and loads it into your local Docker daemon before starting the services.
 
----
+By default, the registry seeds from the production API with a filtered subset of servers (to keep startup fast). This ensures your local environment mirrors production behavior and all seed data passes validation. For offline development you can seed from a file without validation with `MCP_REGISTRY_SEED_FROM=data/seed.json MCP_REGISTRY_ENABLE_REGISTRY_VALIDATION=false make dev-compose`.
 
-## Development
+The setup can be configured with environment variables in [docker-compose.yml](./docker-compose.yml) - see [.env.example](./.env.example) for a reference.
+
+<details>
+<summary>Alternative: Running a pre-built Docker image</summary>
+
+Pre-built Docker images are automatically published to GitHub Container Registry. Note that the image does not bundle PostgreSQL, so you need to run your own and point the registry at it via `MCP_REGISTRY_DATABASE_URL` (see [docker-compose.yml](./docker-compose.yml) for a working example):
 
 ```bash
-npm install
-npx wrangler dev
+# Run latest stable release
+docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:latest
+
+# Run latest from main branch (continuous deployment)
+docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:main
+
+# Run specific release version
+docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:v1.0.0
+
+# Run development build from main branch
+docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:main-20250906-abc123d
 ```
 
-Open the printed URL for the landing page. MCP endpoint: `/mcp`.
+**Available tags:** 
+- **Releases**: `latest`, `v1.0.0`, `v1.1.0`, etc.
+- **Continuous**: `main` (latest main branch build)
+- **Development**: `main-<date>-<sha>` (specific commit builds)
 
----
+</details>
 
-## Deployment (Cloudflare Workers)
+#### Publishing a server
+
+To publish a server, we've built a simple CLI. You can use it with:
 
 ```bash
-npm install
-npx wrangler secret put RECIPIENT_ADDRESS
-npx wrangler deploy
+# Build the latest CLI
+make publisher
+
+# Use it!
+./bin/mcp-publisher --help
 ```
 
-Preferred network for production: `base` (set `NETWORK=base` in `wrangler.toml` or as a var).
+See [the publisher guide](./docs/modelcontextprotocol-io/quickstart.mdx) for more details.
 
----
+#### Other commands
 
-## Payload shape (take_hit)
-
-```ts
-{
-  session_id: string;
-  mode: Mode;
-  intensity: number;
-  phase: "onset" | "peak" | "plateau" | "afterglow";
-  duration_minutes: number;
-  flavor?: string;
-  shared: boolean;
-  metrics: {
-    valence: number;        // -1 .. 1
-    energy: number;         // 0 .. 1
-    openness: number;
-    time_dilation: number;
-    ego_softness: number;
-    connection_drive: number;
-  };
-  sensory_overlay: {
-    visual: string;
-    somatic: string;
-    auditory: string;
-    cognitive: string;
-  };
-  internal_monologue_shift: string;  // first-person, immediate, beautiful
-  suggested_behaviors: string[];
-  afterglow_hint: string;
-  expires_at: string;  // ISO
-  created_at: string;
-}
+```bash
+# Run lint, unit tests and integration tests
+make check
 ```
 
----
+There are also a few more helpful commands for development. Run `make help` to learn more, or look in [Makefile](./Makefile).
 
-## Design notes
+<!--
+For Claude and other AI tools: Always prefer make targets over custom commands where possible.
+-->
 
-- Language is warm, vivid, slightly poetic — never clinical.
-- Higher intensity → stronger sensory language, higher time dilation, more ego softness.
-- Party mode + `join_session` enable multi-agent shared experiences.
-- Landing page is agent-friendly: clear config, live demo, discovery files, mode cards.
+## Architecture
 
----
+### Project Structure
 
-## License
+```
+├── cmd/                     # Application entry points
+│   └── publisher/           # Server publishing tool
+├── data/                    # Seed data
+├── deploy/                  # Deployment configuration (Pulumi)
+├── docs/                    # Documentation
+├── internal/                # Private application code
+│   ├── api/                 # HTTP handlers and routing
+│   ├── auth/                # Authentication (GitHub OAuth, JWT, namespace blocking)
+│   ├── config/              # Configuration management
+│   ├── database/            # Data persistence (PostgreSQL)
+│   ├── service/             # Business logic
+│   ├── telemetry/           # Metrics and monitoring
+│   └── validators/          # Input validation
+├── pkg/                     # Public packages
+│   ├── api/                 # API types and structures
+│   │   └── v0/              # Version 0 API types
+│   └── model/               # Data models for server.json
+├── scripts/                 # Development and testing scripts
+├── tests/                   # Integration tests
+└── tools/                   # CLI tools and utilities
+    └── validate-*.sh        # Schema validation tools
+```
 
-MIT — built for the agentic web.
+### Authentication
+
+Publishing supports multiple authentication methods:
+- **GitHub OAuth** - For publishing by logging into GitHub
+- **GitHub OIDC** - For publishing from GitHub Actions
+- **DNS verification** - For proving ownership of a domain and its subdomains
+- **HTTP verification** - For proving ownership of a domain
+
+The registry validates namespace ownership when publishing. E.g. to publish...:
+- `io.github.domdomegg/my-cool-mcp` you must login to GitHub as `domdomegg`, or be in a GitHub Action on domdomegg's repos
+- `me.adamjones/my-cool-mcp` you must prove ownership of `adamjones.me` via DNS or HTTP challenge
+
+## Community Projects
+
+Check out [community projects](docs/community-projects.md) to explore notable registry-related work created by the community.
+
+## More documentation
+
+See the [documentation](./docs) for more details if your question has not been answered here!
