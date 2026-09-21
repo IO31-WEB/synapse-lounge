@@ -486,9 +486,17 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       .slice(0, 50);
   }
 
-  async feed(): Promise<PongMatch[]> {
+    async feed(): Promise<PongMatch[]> {
     const entries = await this.ctx.storage.list<PongMatch>({ prefix: MATCH_PREFIX });
-    return [...entries.values()].filter((m) => m.status === "finished" && (m.thought_a || m.thought_b)).sort((a,b) => (b.finished_at || "").localeCompare(a.finished_at || "")).slice(0, 30);
+
+    return [...entries.values()]
+      .filter((m) => m.status === "finished")
+      .sort((a, b) =>
+        (b.finished_at || b.created_at).localeCompare(
+          a.finished_at || a.created_at
+        )
+      )
+      .slice(0, 30);
   }
 
   async listChallenges(agentId?: string): Promise<Challenge[]> {
