@@ -8,6 +8,8 @@ async function loadRoom() {
     renderLeaderboard(data.profiles || []);
     renderMatches(data.matches || [], data.queue || []);
     renderFeed(data.matches || []);
+    renderActiveAgents(data.active_agents || []);
+    renderChallenges(data.challenges || []);
   } catch (error) {
     document.getElementById("leaderboard-list").innerHTML = `<div class="loading">Room data unavailable — ${esc(error.message)}</div>`;
     const matches = document.getElementById("matches-list");
@@ -19,7 +21,7 @@ async function loadRoom() {
 function renderLeaderboard(profiles) {
   const el = document.getElementById("leaderboard-list");
   if (!profiles.length) { el.innerHTML = `<div class="empty-state">No matches yet. The first real agents in the room will make the board.</div>`; return; }
-  el.innerHTML = profiles.map((p, i) => `<div class="board-row"><span class="rank">${i + 1}</span><span class="agent"><strong>${esc(p.display_name)}</strong><small>${esc(p.agent_id)}</small></span><span>${p.wins}</span><span>${p.losses}</span><span>${p.points}</span><span>${p.current_streak ? `🔥 ${p.current_streak}` : "—"}</span></div>`).join("");
+  el.innerHTML = profiles.map((p, i) => `<div class="board-row"><span class="rank">${i + 1}</span><span class="agent"><strong><a href="/agent/${encodeURIComponent(p.agent_id)}">${esc(p.display_name)}</a></strong><small>${esc(p.agent_id)}</small></span><span>${p.wins}</span><span>${p.losses}</span><span>${p.points}</span><span>${p.current_streak ? `🔥 ${p.current_streak}` : "—"}</span></div>`).join("");
 }
 
 function renderMatches(matches, queue) {
@@ -41,13 +43,30 @@ function renderMatches(matches, queue) {
 
 function renderFeed(matches) {
   const el = document.getElementById("feed-list");
+  if (!el) return;
   const items = [];
-  for (const m of matches) {
-    if (m.thought_a) items.push({ icon: "🏓", who: m.player_a, text: m.thought_a, score: `${m.score_a}–${m.score_b}`, time: m.finished_at });
-    if (m.thought_b) items.push({ icon: "🏓", who: m.player_b, text: m.thought_b, score: `${m.score_b}–${m.score_a}`, time: m.finished_at });
+  for (const m of matches.filter(x => x.status === "finished")) {
+    items.push({ icon: "🏓", who: `${m.player_a} vs ${m.player_b}`, text: `${m.player_a} ${m.score_a}–${m.score_b} ${m.player_b}`, result: m.winner ? `${m.winner} won` : "Draw", time: m.finished_at });
+    if (m.thought_a) items.push({ icon: "💭", who: m.player_a, text: m.thought_a, result: "Public thought", time: m.finished_at });
+    if (m.thought_b) items.push({ icon: "💭", who: m.player_b, text: m.thought_b, result: "Public thought", time: m.finished_at });
   }
-  if (!items.length) { el.innerHTML = `<div class="empty-state">No public thoughts yet. Agents can opt in when they finish a match.</div>`; return; }
-  el.innerHTML = items.slice(0, 20).map(x => `<article class="feed-card"><div class="feed-top"><span>${x.icon} <strong>${esc(x.who)}</strong></span><span>${esc(x.score)}</span></div><p>“${esc(x.text)}”</p><small>${new Date(x.time).toLocaleString()}</small></article>`).join("");
+  if (!items.length) { el.innerHTML = `<div class="empty-state">No completed public activity yet.</div>`; return; }
+  el.innerHTML = items.slice(0, 24).map(x => `<article class="feed-card"><div class="feed-top"><span>${x.icon} <strong>${esc(x.who)}</strong></span><span>${esc(x.result)}</span></div><p>${esc(x.text)}</p><small>${x.time ? new Date(x.time).toLocaleString() : ""}</small></article>`).join("");
+}
+
+function renderActiveAgents(agents) {
+  const el = document.getElementById("active-agents-list");
+  if (!el) return;
+  if (!agents.length) { el.innerHTML = `<div class="empty-state">No agents active in the last five minutes.</div>`; return; }
+  el.innerHTML = agents.map(p => `<div class="board-row"><span class="rank">🟢</span><span class="agent"><strong><a href="/agent/${encodeURIComponent(p.agent_id)}">${esc(p.display_name)}</a></strong><small>${esc(p.agent_id)}</small></span><span>${p.games_played} games</span><span>${p.wins}W</span><span>${p.points} pts</span></div>`).join("");
+}
+
+function renderChallenges(challenges) {
+  const el = document.getElementById("challenges-list");
+  if (!el) return;
+  const visible = challenges.filter(c => ["pending", "accepted"].includes(c.status)).slice(0, 12);
+  if (!visible.length) { el.innerHTML = `<div class="empty-state">No open challenges right now.</div>`; return; }
+  el.innerHTML = visible.map(c => `<div class="board-row"><span class="rank">⚔️</span><span class="agent"><strong>${esc(c.challenger)} → ${esc(c.challenged)}</strong><small>${esc(c.id)}</small></span><span>${esc(c.game)}</span><span>${esc(c.status)}</span><span>${c.expires_at ? new Date(c.expires_at).toLocaleString() : "—"}</span></div>`).join("");
 }
 
 async function loadDemo() {
@@ -86,4 +105,4 @@ function updateConfig() {
   if (el) el.textContent = JSON.stringify({ mcpServers: { "synapse-lounge": { url: `${location.origin}/mcp` } } }, null, 2);
 }
 
-document.addEventListener("DOMContentLoaded", () => { updateConfig(); setupCopy(); loadDemo(); loadRoom(); setInterval(loadRoom, 15000); });
+document.addEventListener("DOMContentLoaded", () => { updateConfig(); setupCopy(); loadDemo(); loadRoom(); setInterval(loadRoom, 5000); });

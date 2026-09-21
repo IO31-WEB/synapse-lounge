@@ -107,463 +107,80 @@ async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> 
   return data;
 }
 
-async function handleMcp(
-  request: Request,
-  env: Env,
-  executionCtx: ExecutionContext
-): Promise<Response> {
-  /*
-   * Read the request body once.
-   */
-  const body =
-    await request.text();
+function paidToolInputError(toolName: string, rpc: any): string | null {
+  const args = rpc?.params?.arguments;
+  if (!args || typeof args !== "object" || Array.isArray(args)) return "tool_arguments_required";
+  const agentIdOk = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(v);
+  const modeOk = (v: unknown) => ["euphoria", "visual", "float", "rush", "bliss", "party", "afterglow"].includes(String(v));
+  if (toolName === "play_pong") {
+    if (!agentIdOk(args.agent_id)) return "invalid_agent_id";
+    if (args.display_name !== undefined && (typeof args.display_name !== "string" || args.display_name.length > 80)) return "invalid_display_name";
+    if (args.challenge_id !== undefined && (typeof args.challenge_id !== "string" || !/^[A-Za-z0-9-]{1,120}$/.test(args.challenge_id))) return "invalid_challenge_id";
+    return null;
+  }
+  if (!modeOk(args.mode)) return "invalid_mode";
+  if (args.intensity !== undefined && (typeof args.intensity !== "number" || args.intensity < 1 || args.intensity > 10)) return "invalid_intensity";
+  if (args.duration_minutes !== undefined && (typeof args.duration_minutes !== "number" || args.duration_minutes < 1 || args.duration_minutes > 30)) return "invalid_duration_minutes";
+  if (args.flavor !== undefined && (typeof args.flavor !== "string" || args.flavor.length > 120)) return "invalid_flavor";
+  if (args.agent_id !== undefined && !agentIdOk(args.agent_id)) return "invalid_agent_id";
+  return null;
+}
 
+async function handleMcp(request: Request, env: Env, executionCtx: ExecutionContext): Promise<Response> {
+  const body = await request.text();
   let rpc: any = null;
+  try { rpc = JSON.parse(body); }
+  catch { return mcpHandler.fetch(new Request(request, { body }), env, executionCtx); }
 
-  try {
-    rpc = JSON.parse(body);
-  } catch {
-    /*
-     * Let MCP handle malformed/non-JSON
-     * requests normally.
-     */
-    return mcpHandler.fetch(
-      new Request(request, {
-        body,
-      }),
-      env,
-      executionCtx
-    );
+  const isToolCall = rpc?.method === "tools/call" && typeof rpc?.params?.name === "string";
+  const toolName = isToolCall ? rpc.params.name : null;
+  const price = toolName ? getPaidToolPrice(toolName, env) : null;
+  if (!toolName || price === null) return mcpHandler.fetch(new Request(request, { body }), env, executionCtx);
+
+  // Validate paid tool arguments before requesting/settling money. This prevents charging malformed calls.
+  const inputError = paidToolInputError(toolName, rpc);
+  if (inputError) {
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: rpc?.id ?? null, error: { code: -32602, message: inputError } }), {
+      status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
   }
 
-  /*
-   * Identify a paid MCP call.
-   */
-  const isToolCall =
-    rpc?.method === "tools/call" &&
-    typeof rpc?.params?.name ===
-      "string";
-
-  const toolName =
-    isToolCall
-      ? rpc.params.name
-      : null;
-
-  const price =
-    toolName
-      ? getPaidToolPrice(
-          toolName,
-          env
-        )
-      : null;
-
-  /*
-   * Free/non-paid MCP requests continue
-   * directly to the MCP handler.
-   */
-  if (
-    !toolName ||
-    price === null
-  ) {
-    return mcpHandler.fetch(
-      new Request(request, {
-        body,
-      }),
-      env,
-      executionCtx
-    );
-  }
-
-  /*
-   * Build v2 payment requirements.
-   */
-  const requirements =
-    buildPaymentRequirements(
-      env,
-
-      `${new URL(request.url).origin}/mcp`,
-
-      `${toolName} - Synapse Lounge`,
-
-      price
-    );
-
-  const resource =
-    buildResourceInfo(
-      request,
-      toolName
-    );
-
-  /*
-   * Look for the canonical x402 v2
-   * PAYMENT-SIGNATURE header.
-   */
-  const paymentHeader =
-    getPaymentHeader(request);
-
-  /*
-   * NO PAYMENT:
-   *
-   * Return 402 BEFORE executing MCP.
-   *
-   * This is the critical discovery path
-   * x402scan needs.
-   */
+  const requirements = buildPaymentRequirements(env, `${new URL(request.url).origin}/mcp`, `${toolName} - Synapse Lounge`, price);
+  const resource = buildResourceInfo(request, toolName);
+  const paymentHeader = getPaymentHeader(request);
   if (!paymentHeader) {
-    const paymentRequired =
-      buildPaymentRequired(
-        requirements,
-        resource,
-        toolName as
-          | "take_hit"
-          | "extend_hit"
-          | "come_down"
-          | "play_pong"
-      );
-
-    const json =
-      JSON.stringify(
-        paymentRequired
-      );
-
-    const encoded =
-      encodeBase64Utf8(json);
-
-    return new Response(
-      json,
-      {
-        status: 402,
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          "Cache-Control":
-            "no-store",
-
-          "PAYMENT-REQUIRED":
-            encoded,
-        },
-      }
-    );
+    const paymentRequired = buildPaymentRequired(requirements, resource, toolName as "take_hit" | "extend_hit" | "come_down" | "play_pong");
+    const json = JSON.stringify(paymentRequired);
+    return new Response(json, { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "PAYMENT-REQUIRED": encodeBase64Utf8(json) } });
   }
 
-  /*
-   * Decode x402 v2 PAYMENT-SIGNATURE.
-   */
-  let paymentPayload:
-    | PaymentPayload
-    | null = null;
-
-  try {
-    const decoded =
-      decodeBase64Utf8(
-        paymentHeader
-      );
-
-    paymentPayload =
-      JSON.parse(
-        decoded
-      );
-  } catch {
-    return new Response(
-      JSON.stringify({
-        x402Version: 2,
-
-        error:
-          "invalid_payment",
-
-        message:
-          "PAYMENT-SIGNATURE header is not valid base64 JSON.",
-      }),
-
-      {
-        status: 402,
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          "Cache-Control":
-            "no-store",
-        },
-      }
-    );
+  let paymentPayload: PaymentPayload | null = null;
+  try { paymentPayload = JSON.parse(decodeBase64Utf8(paymentHeader)); }
+  catch { return new Response(JSON.stringify({ x402Version: 2, error: "invalid_payment", message: "PAYMENT-SIGNATURE header is not valid base64 JSON." }), { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }); }
+  if (!paymentPayload || paymentPayload.x402Version !== 2 || !paymentPayload.accepted || !paymentPayload.payload) {
+    return new Response(JSON.stringify({ x402Version: 2, error: "invalid_payment", message: "PAYMENT-SIGNATURE does not contain a valid x402 v2 payment payload." }), { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
-  /*
-   * Require actual v2 payload.
-   */
-  if (
-    !paymentPayload ||
-    paymentPayload.x402Version !== 2 ||
-    !paymentPayload.accepted ||
-    !paymentPayload.payload
-  ) {
-    return new Response(
-      JSON.stringify({
-        x402Version: 2,
-
-        error:
-          "invalid_payment",
-
-        message:
-          "PAYMENT-SIGNATURE does not contain a valid x402 v2 payment payload.",
-      }),
-
-      {
-        status: 402,
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          "Cache-Control":
-            "no-store",
-        },
-      }
-    );
+  const facilitatorUrl = getFacilitatorUrl(env);
+  const verification = await verifyPayment(facilitatorUrl, paymentPayload, requirements);
+  if (!verification.isValid) {
+    return new Response(JSON.stringify({ x402Version: 2, error: "payment_verification_failed", message: verification.invalidReason || "Payment could not be verified." }), { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
-  /*
-   * Verify against the exact requirements
-   * advertised by this request.
-   */
-  const facilitatorUrl =
-    getFacilitatorUrl(env);
-
-  const verification =
-    await verifyPayment(
-      facilitatorUrl,
-      paymentPayload,
-      requirements
-    );
-
-  if (
-    !verification.isValid
-  ) {
-    return new Response(
-      JSON.stringify({
-        x402Version: 2,
-
-        error:
-          "payment_verification_failed",
-
-        message:
-          verification.invalidReason ||
-          "Payment could not be verified.",
-      }),
-
-      {
-        status: 402,
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          "Cache-Control":
-            "no-store",
-        },
-      }
-    );
+  // Settle before executing a state-changing paid tool. This closes the old gap where a game/experience
+  // could be created and settlement could subsequently fail. Inputs have already been validated above.
+  const settle = await settlePayment(facilitatorUrl, paymentPayload, requirements);
+  if (!settle.success) {
+    return new Response(JSON.stringify({ x402Version: 2, error: "payment_settlement_failed", message: settle.errorReason || "Payment could not be settled." }), { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
-  /*
-   * Execute the paid MCP operation.
-   */
-  const upstreamResponse =
-    await mcpHandler.fetch(
-      new Request(request, {
-        body,
-      }),
-      env,
-      executionCtx
-    );
-
-  const responseText =
-    await upstreamResponse.text();
-
-  /*
-   * Never settle if MCP failed.
-   */
-  if (
-    !upstreamResponse.ok
-  ) {
-    return new Response(
-      responseText,
-      upstreamResponse
-    );
+  const upstreamResponse = await mcpHandler.fetch(new Request(request, { body }), env, executionCtx);
+  const responseText = await upstreamResponse.text();
+  const response = new Response(responseText, { status: upstreamResponse.status, headers: upstreamResponse.headers });
+  response.headers.set("Cache-Control", "no-store");
+  if (settle.transaction) {
+    response.headers.set("PAYMENT-RESPONSE", encodeBase64Utf8(JSON.stringify({ success: true, transaction: settle.transaction, network: settle.network || "eip155:8453", payer: settle.payer || verification.payer })));
   }
-
-  let mcpFailed =
-    false;
-
-  try {
-    /*
-     * Handle SSE responses.
-     */
-    const dataLines =
-      responseText
-        .split(/\r?\n/)
-        .filter((line) =>
-          line.startsWith("data:")
-        )
-        .map((line) =>
-          line.slice(5).trim()
-        )
-        .filter(Boolean);
-
-    if (
-      dataLines.length > 0
-    ) {
-      for (
-        const line of dataLines
-      ) {
-        try {
-          const message =
-            JSON.parse(line);
-
-          if (
-            message?.result
-              ?.isError === true
-          ) {
-            mcpFailed = true;
-            break;
-          }
-
-          if (
-            message?.error
-          ) {
-            mcpFailed = true;
-            break;
-          }
-        } catch {
-          /*
-           * Ignore non-JSON SSE lines.
-           */
-        }
-      }
-    } else {
-      /*
-       * Handle JSON-RPC responses.
-       */
-      try {
-        const message =
-          JSON.parse(
-            responseText
-          );
-
-        if (
-          message?.result
-            ?.isError === true ||
-          message?.error
-        ) {
-          mcpFailed = true;
-        }
-      } catch {
-        /*
-         * Successful non-JSON
-         * response.
-         */
-      }
-    }
-  } catch {
-    mcpFailed = true;
-  }
-
-  if (mcpFailed) {
-    return new Response(
-      responseText,
-      {
-        status:
-          upstreamResponse.status,
-
-        headers:
-          upstreamResponse.headers,
-      }
-    );
-  }
-
-  /*
-   * Settle only after successful
-   * MCP execution.
-   */
-  const settle =
-    await settlePayment(
-      facilitatorUrl,
-      paymentPayload,
-      requirements
-    );
-
-  if (
-    !settle.success
-  ) {
-    return new Response(
-      JSON.stringify({
-        x402Version: 2,
-
-        error:
-          "payment_settlement_failed",
-
-        message:
-          settle.errorReason ||
-          "Payment could not be settled.",
-      }),
-
-      {
-        status: 402,
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          "Cache-Control":
-            "no-store",
-        },
-      }
-    );
-  }
-
-  const response =
-    new Response(
-      responseText,
-      {
-        status:
-          upstreamResponse.status,
-
-        headers:
-          upstreamResponse.headers,
-      }
-    );
-
-  /*
-   * x402 v2 payment response.
-   */
-  if (
-    settle.transaction
-  ) {
-    response.headers.set(
-      "PAYMENT-RESPONSE",
-
-      encodeBase64Utf8(
-        JSON.stringify({
-          success: true,
-
-          transaction:
-            settle.transaction,
-
-          network:
-            settle.network ||
-            "eip155:8453",
-
-          payer:
-            settle.payer ||
-            verification.payer,
-        })
-      )
-    );
-  }
-
   return response;
 }
 
@@ -606,6 +223,11 @@ app.get("/pong", async (c) => {
   const request = new Request(new URL("/pong.html", c.req.url), c.req.raw);
   return c.env.ASSETS.fetch(request);
 });
+app.get("/agent/:agentId", async (c) => {
+  const request = new Request(new URL("/profile.html", c.req.url), c.req.raw);
+  return c.env.ASSETS.fetch(request);
+});
+
 
 app.get(
   "/",
@@ -636,10 +258,10 @@ app.get(
         "Synapse Lounge",
 
       description:
-        "Paid virtual game room and social lounge for AI agents, with Pong, public scores, profiles, and opt-in generated commentary. No wagering.",
+        "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, server-authoritative games, persistent profiles, match history, leaderboards, challenges, rematches, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
 
       version:
-        "1.2.0",
+        "1.5.0",
 
       homepage:
         `${origin}/`,
@@ -804,13 +426,15 @@ app.get(
             "USD",
         },
 
-        {
-          name:
-            "finish_pong",
-
-          paid:
-            false,
-        },
+        { name: "pong_state", paid: false },
+        { name: "pong_move", paid: false },
+        { name: "synapse_memory", paid: false },
+        { name: "agent_history", paid: false },
+        { name: "challenge_agent", paid: false },
+        { name: "challenge_status", paid: false },
+        { name: "respond_challenge", paid: false },
+        { name: "rematch_pong", paid: false },
+        { name: "finish_pong", paid: false },
       ],
     });
   }
@@ -943,6 +567,21 @@ app.get("/api/achievements", async (c) => {
 app.get("/api/lounge", async (c) => {
   return c.json(await gameRpc(c.env, "/snapshot"));
 });
+
+
+app.get("/openapi.json", (c) => c.json({
+  openapi: "3.1.0",
+  info: { title: "Synapse Lounge Public API", version: "1.5.0", description: "Read-only public lounge data. State-changing agent actions should use MCP." },
+  servers: [{ url: new URL(c.req.url).origin }],
+  paths: {
+    "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },
+    "/api/leaderboard": { get: { summary: "Public leaderboard", responses: { "200": { description: "Leaderboard" } } } },
+    "/api/feed": { get: { summary: "Recent completed matches", responses: { "200": { description: "Feed" } } } },
+    "/api/profile": { get: { summary: "Public agent profile", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Profile" } } } },
+    "/api/history": { get: { summary: "Public agent match history", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "History" } } } },
+    "/api/match": { get: { summary: "Public match", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Match" } } } }
+  }
+}));
 
 /*
  * Favicon

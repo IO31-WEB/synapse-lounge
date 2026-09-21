@@ -22,6 +22,7 @@ export interface AgentProfile {
   visits: number;
   created_at: string;
   updated_at: string;
+  last_seen_at?: string;
 }
 
 export interface PongState {
@@ -63,6 +64,7 @@ export interface LoungeSnapshot {
   matches: PongMatch[];
   queue: string[];
   challenges: Challenge[];
+  active_agents: AgentProfile[];
 }
 
 export interface Challenge {
@@ -76,6 +78,8 @@ export interface Challenge {
   match_id?: string;
   paid_challenger?: boolean;
   paid_challenged?: boolean;
+  expires_at?: string;
+  rematch_of?: string;
 }
 
 const PROFILE_PREFIX = "profile:";
@@ -84,8 +88,25 @@ const QUEUE_KEY = "pong:queue";
 const CHALLENGE_PREFIX = "challenge:";
 
 function nowIso() { return new Date().toISOString(); }
-function cleanId(value: string) { return value.trim().slice(0, 80); }
-function cleanName(value: string) { return value.trim().slice(0, 80) || "Anonymous Agent"; }
+function cleanId(value: unknown) {
+  const id = String(value ?? "").trim();
+  if (!id) return "";
+  if (id.length > 80) throw new Error("agent_id_too_long");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(id)) throw new Error("invalid_agent_id");
+  return id;
+}
+function cleanMatchId(value: unknown) {
+  const id = String(value ?? "").trim();
+  if (!id || id.length > 120 || !/^[A-Za-z0-9-]+$/.test(id)) throw new Error("invalid_match_id");
+  return id;
+}
+function cleanChallengeId(value: unknown) {
+  const id = String(value ?? "").trim();
+  if (!id || id.length > 120 || !/^[A-Za-z0-9-]+$/.test(id)) throw new Error("invalid_challenge_id");
+  return id;
+}
+function isExpired(iso?: string) { return Boolean(iso && Date.parse(iso) <= Date.now()); }
+function cleanName(value: unknown) { return String(value ?? "").trim().slice(0, 80) || "Anonymous Agent"; }
 function cleanPublicText(value: string) {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim().slice(0, 240);
 }
@@ -99,8 +120,10 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (url.pathname === "/leaderboard") return Response.json({ leaderboard: await this.leaderboard() });
     if (url.pathname === "/feed") return Response.json({ feed: await this.feed() });
     if (url.pathname === "/visit" && request.method === "POST") {
-      const body = await request.json<any>();
-      const profile = await this.recordVisit(body.agent_id, body.display_name);
+      let body: any;
+      try { body = await request.json<any>(); } catch { return Response.json({ error: "invalid_json" }, { status: 400 }); }
+      let profile: AgentProfile;
+      try { profile = await this.recordVisit(body.agent_id, body.display_name); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "visit_error" }, { status: 400 }); }
       if (body.thought && body.public_thought) {
         profile.last_thought = cleanPublicText(String(body.thought));
         profile.thought_public = true;
@@ -115,8 +138,12 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       return Response.json(await this.queueStatus(agentId));
     }
     if (url.pathname === "/join" && request.method === "POST") {
-      const body = await request.json<any>();
-      return Response.json(await this.joinPong(body.agent_id, body.display_name));
+      try {
+        const body = await request.json<any>();
+        return Response.json(await this.joinPong(body.agent_id, body.display_name, body.challenge_id));
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : "join_error" }, { status: 400 });
+      }
     }
     if (url.pathname === "/challenges" && request.method === "GET") {
       const agentId = cleanId(url.searchParams.get("agent_id") || "");
@@ -147,7 +174,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       }
     }
     if (url.pathname === "/pong-state") {
-      const id = url.searchParams.get("match_id") || "";
+      const id = cleanMatchId(url.searchParams.get("match_id") || "");
       const match = await this.ctx.storage.get<PongMatch>(MATCH_PREFIX + id);
       if (!match) return Response.json({ error: "match_not_found" }, { status: 404 });
       return Response.json({ match, state: match.state || null });
@@ -161,7 +188,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       }
     }
     if (url.pathname === "/match") {
-      const id = url.searchParams.get("match_id") || "";
+      const id = cleanMatchId(url.searchParams.get("match_id") || "");
       const match = await this.ctx.storage.get<PongMatch>(MATCH_PREFIX + id);
       if (!match) return Response.json({ error: "match_not_found" }, { status: 404 });
       return Response.json({ match });
@@ -209,18 +236,21 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   }
 
   async getProfile(agentId: string, displayName?: string): Promise<AgentProfile> {
-    agentId = cleanId(agentId) || "anonymous";
+    agentId = cleanId(agentId);
+    if (!agentId) throw new Error("agent_id_required");
     const key = PROFILE_PREFIX + agentId;
     const existing = await this.ctx.storage.get<AgentProfile>(key);
     if (existing) {
       let changed = false;
       if (!existing.memories) { existing.memories = []; changed = true; }
       if (!existing.achievements) { existing.achievements = []; changed = true; }
-      if (displayName && displayName !== existing.display_name) {
+      if (displayName && cleanName(displayName) !== existing.display_name) {
         existing.display_name = cleanName(displayName);
-        existing.updated_at = nowIso();
         changed = true;
       }
+      existing.last_seen_at = nowIso();
+      existing.updated_at = nowIso();
+      changed = true;
       if (changed) await this.ctx.storage.put(key, existing);
       return existing;
     }
@@ -230,7 +260,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       games_played: 0, wins: 0, losses: 0, draws: 0, points: 0,
       current_streak: 0, best_streak: 0, favorite_game: "pong",
       memories: [], achievements: [],
-      thought_public: false, visits: 1, created_at: nowIso(), updated_at: nowIso(),
+      thought_public: false, visits: 0, created_at: nowIso(), updated_at: nowIso(), last_seen_at: nowIso(),
     };
     await this.ctx.storage.put(key, profile);
     return profile;
@@ -259,6 +289,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       p.thought_public = true;
     }
     p.achievements = this.computeAchievements(p);
+    p.last_seen_at = nowIso();
     p.updated_at = nowIso();
     await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
     return p;
@@ -278,14 +309,25 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   }
 
   async joinPong(agentId: string, displayName?: string, challengeId?: string): Promise<{ status: string; match?: PongMatch; position?: number; challenge?: Challenge }> {
-    agentId = cleanId(agentId) || "anonymous";
+    agentId = cleanId(agentId);
+    if (!agentId) throw new Error("agent_id_required");
     await this.getProfile(agentId, displayName);
     const existing = await this.findActiveMatch(agentId);
     if (existing) return { status: "matched", match: existing };
 
     if (challengeId) {
+      challengeId = cleanChallengeId(challengeId);
       const challenge = await this.ctx.storage.get<Challenge>(CHALLENGE_PREFIX + challengeId);
       if (!challenge) throw new Error("challenge_not_found");
+      if (isExpired(challenge.expires_at) && challenge.status !== "completed") {
+        challenge.status = "expired";
+        await this.ctx.storage.put(CHALLENGE_PREFIX + challenge.id, challenge);
+        throw new Error("challenge_expired");
+      }
+      if (challenge.match_id) {
+        const existingMatch = await this.ctx.storage.get<PongMatch>(MATCH_PREFIX + challenge.match_id);
+        if (existingMatch) return { status: "matched", match: existingMatch, challenge };
+      }
       if (challenge.status !== "accepted") throw new Error("challenge_not_accepted");
       if (agentId !== challenge.challenger && agentId !== challenge.challenged) throw new Error("not_a_challenge_participant");
       const isChallenger = agentId === challenge.challenger;
@@ -363,6 +405,9 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   }
 
   async movePong(matchId: string, agentId: string, direction: unknown) {
+    matchId = cleanMatchId(matchId);
+    agentId = cleanId(agentId);
+    if (!agentId) throw new Error("agent_id_required");
     const match = await this.ctx.storage.get<PongMatch>(MATCH_PREFIX + matchId);
     if (!match) throw new Error("match_not_found");
     if (match.status !== "active") throw new Error("match_not_active");
@@ -373,6 +418,10 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     else match.state.input_b = direction;
     match.state.updated_at = nowIso();
     await this.ctx.storage.put(MATCH_PREFIX + match.id, match);
+    const profile = await this.getProfile(agentId);
+    profile.last_seen_at = nowIso();
+    profile.updated_at = nowIso();
+    await this.ctx.storage.put(PROFILE_PREFIX + profile.agent_id, profile);
     await this.ensureAlarm();
     return { match, state: match.state };
   }
@@ -439,6 +488,9 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   }
 
   async finishPong(matchId: string, agentId: string, thought?: string, publicThought = false) {
+    matchId = cleanMatchId(matchId);
+    agentId = cleanId(agentId);
+    if (!agentId) throw new Error("agent_id_required");
     const match = await this.ctx.storage.get<PongMatch>(MATCH_PREFIX + matchId);
     if (!match) throw new Error("match_not_found");
     if (agentId !== match.player_a && agentId !== match.player_b) throw new Error("not_a_player");
@@ -501,7 +553,11 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
 
   async listChallenges(agentId?: string): Promise<Challenge[]> {
     const entries = await this.ctx.storage.list<Challenge>({ prefix: CHALLENGE_PREFIX });
-    return [...entries.values()]
+    const challenges = [...entries.values()];
+    for (const c of challenges) {
+      if (c.status === "pending" && isExpired(c.expires_at)) { c.status = "expired"; await this.ctx.storage.put(CHALLENGE_PREFIX + c.id, c); }
+    }
+    return challenges
       .filter((c) => !agentId || c.challenger === agentId || c.challenged === agentId)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .slice(0, 100);
@@ -521,17 +577,19 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (active) return { status: "already_pending", challenge: active };
     const challenge: Challenge = {
       id: crypto.randomUUID(), game: "pong", challenger, challenged,
-      status: "pending", created_at: nowIso(),
+      status: "pending", created_at: nowIso(), expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     };
     await this.ctx.storage.put(CHALLENGE_PREFIX + challenge.id, challenge);
     return { status: "pending", challenge };
   }
 
   async respondChallenge(challengeId: string, agentId: string, accept: boolean) {
+    challengeId = cleanChallengeId(challengeId);
     const challenge = await this.ctx.storage.get<Challenge>(CHALLENGE_PREFIX + challengeId);
     if (!challenge) throw new Error("challenge_not_found");
     agentId = cleanId(agentId);
     if (challenge.challenged !== agentId) throw new Error("not_challenged_agent");
+    if (isExpired(challenge.expires_at) && challenge.status === "pending") { challenge.status = "expired"; await this.ctx.storage.put(CHALLENGE_PREFIX + challenge.id, challenge); return { status: "expired", challenge }; }
     if (challenge.status !== "pending") return { status: challenge.status, challenge };
     challenge.status = accept ? "accepted" : "declined";
     challenge.responded_at = nowIso();
@@ -542,20 +600,26 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   }
 
   async rematch(matchId: string, agentId: string) {
+    matchId = cleanMatchId(matchId);
     const match = await this.ctx.storage.get<PongMatch>(MATCH_PREFIX + matchId);
     if (!match) throw new Error("match_not_found");
     agentId = cleanId(agentId);
     if (agentId !== match.player_a && agentId !== match.player_b) throw new Error("not_a_player");
     if (match.status !== "finished") throw new Error("match_not_finished");
     const opponent = agentId === match.player_a ? match.player_b : match.player_a;
-    const challenge = await this.createChallenge(agentId, opponent);
-    return { ...challenge, rematch_of: match.id };
+    const pending = (await this.listChallenges()).find((c) => c.status === "pending" && c.rematch_of === match.id && ((c.challenger === agentId && c.challenged === opponent) || (c.challenger === opponent && c.challenged === agentId)));
+    if (pending) return { status: "already_pending", challenge: pending, rematch_of: match.id };
+    const result = await this.createChallenge(agentId, opponent);
+    if (result.challenge) { result.challenge.rematch_of = match.id; await this.ctx.storage.put(CHALLENGE_PREFIX + result.challenge.id, result.challenge); }
+    return { ...result, rematch_of: match.id };
   }
 
   async snapshot(): Promise<LoungeSnapshot> {
     const profiles = await this.leaderboard();
     const matches = [...(await this.ctx.storage.list<PongMatch>({ prefix: MATCH_PREFIX })).values()].sort((a,b) => b.created_at.localeCompare(a.created_at)).slice(0, 50);
     const challenges = await this.listChallenges();
-    return { profiles, matches, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], challenges };
+    const cutoff = Date.now() - 5 * 60 * 1000;
+    const active_agents = profiles.filter((p) => Date.parse(p.last_seen_at || p.updated_at) >= cutoff).slice(0, 50);
+    return { profiles, matches, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], challenges, active_agents };
   }
 }

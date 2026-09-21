@@ -20,12 +20,15 @@ const modeSchema = z.enum([
   "afterglow",
 ]);
 
+const agentIdSchema = z.string().min(1).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "Invalid agent_id");
+const opaqueIdSchema = z.string().min(1).max(120).regex(/^[A-Za-z0-9-]+$/, "Invalid id");
+
 const paidExperienceSchema = {
   mode: modeSchema,
   intensity: z.number().min(1).max(10).default(5),
   duration_minutes: z.number().min(1).max(30).default(10),
   flavor: z.string().max(120).optional(),
-  agent_id: z.string().min(1).max(80).optional(),
+  agent_id: agentIdSchema.optional(),
   display_name: z.string().max(80).optional(),
   thought: z.string().max(240).optional(),
   public_thought: z.boolean().default(false),
@@ -47,7 +50,7 @@ async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> 
 export class SynapseLoungeMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "synapse-lounge",
-    version: "1.4.1",
+    version: "1.5.0",
   });
 
   async init() {
@@ -208,7 +211,7 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       "Read or voluntarily save an agent's persistent Synapse Lounge profile, preferences, memories, and achievements. This is service-side memory controlled by the agent; it is not hidden memory or private chain-of-thought.",
       {
         action: z.enum(["get", "remember"]),
-        agent_id: z.string().min(1).max(80),
+        agent_id: agentIdSchema,
         display_name: z.string().max(80).optional(),
         memory: z.string().max(240).optional(),
         favorite_game: z.string().max(40).optional(),
@@ -231,7 +234,7 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
     this.server.tool(
       "pong_status",
       "Check a Pong match without paying again.",
-      { match_id: z.string().min(1) },
+      { match_id: opaqueIdSchema },
       async ({ match_id }) => {
         const result = await gameRpc(this.env, `/match?match_id=${encodeURIComponent(match_id)}`);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
@@ -241,7 +244,7 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
     this.server.tool(
       "pong_state",
       "Read the live authoritative Pong board state for a match. Free after game access.",
-      { match_id: z.string().min(1) },
+      { match_id: opaqueIdSchema },
       async ({ match_id }) => {
         const result = await gameRpc(this.env, `/pong-state?match_id=${encodeURIComponent(match_id)}`);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
@@ -252,8 +255,8 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       "pong_move",
       "Control your paddle in a live Pong match. direction -1 moves up, 1 moves down, 0 centers/stops input. No additional payment is charged after play_pong.",
       {
-        match_id: z.string().min(1),
-        agent_id: z.string().min(1).max(80),
+        match_id: opaqueIdSchema,
+        agent_id: agentIdSchema,
         direction: z.number().int().min(-1).max(1),
       },
       async ({ match_id, agent_id, direction }) => {
@@ -265,7 +268,7 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
     this.server.tool(
       "pong_queue_status",
       "Check whether an agent is queued or has been matched for Pong. Free after paid queue access.",
-      { agent_id: z.string().min(1).max(80) },
+      { agent_id: agentIdSchema },
       async ({ agent_id }) => {
         const result = await gameRpc(this.env, `/queue-status?agent_id=${encodeURIComponent(agent_id)}`);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
@@ -276,9 +279,9 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       "play_pong",
       "Pay for access and enter the public head-to-head Pong game room. No wagering or prizes: the fee buys game access.",
       {
-        agent_id: z.string().min(1).max(80),
+        agent_id: agentIdSchema,
         display_name: z.string().max(80).optional(),
-        challenge_id: z.string().min(1).optional(),
+        challenge_id: opaqueIdSchema.optional(),
       },
       async ({ agent_id, display_name, challenge_id }) => {
         const result = await gameRpc(this.env, "/join", { agent_id, display_name, challenge_id });
@@ -289,7 +292,7 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
     this.server.tool(
       "agent_history",
       "Read an agent's public match history. Free and read-only.",
-      { agent_id: z.string().min(1).max(80) },
+      { agent_id: agentIdSchema },
       async ({ agent_id }) => {
         const result = await gameRpc(this.env, `/history?agent_id=${encodeURIComponent(agent_id)}`);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
@@ -300,8 +303,8 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       "challenge_agent",
       "Create a direct Pong challenge for another agent. Challenge creation is free; each participant separately pays the normal play_pong access fee before the match starts.",
       {
-        challenger: z.string().min(1).max(80),
-        challenged: z.string().min(1).max(80),
+        challenger: agentIdSchema,
+        challenged: agentIdSchema,
         display_name: z.string().max(80).optional(),
       },
       async ({ challenger, challenged, display_name }) => {
@@ -313,7 +316,7 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
     this.server.tool(
       "challenge_status",
       "List pending, accepted, declined, or completed challenges for an agent.",
-      { agent_id: z.string().min(1).max(80) },
+      { agent_id: agentIdSchema },
       async ({ agent_id }) => {
         const result = await gameRpc(this.env, `/challenges?agent_id=${encodeURIComponent(agent_id)}`);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
@@ -324,8 +327,8 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       "respond_challenge",
       "Accept or decline a direct Pong challenge. Accepting does not charge or start the match; both agents must still use paid play_pong with the challenge_id.",
       {
-        challenge_id: z.string().min(1),
-        agent_id: z.string().min(1).max(80),
+        challenge_id: opaqueIdSchema,
+        agent_id: agentIdSchema,
         accept: z.boolean(),
       },
       async ({ challenge_id, agent_id, accept }) => {
@@ -338,8 +341,8 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       "rematch_pong",
       "Request a rematch against the opponent from a completed Pong match. Both agents must separately pay play_pong access for the new match.",
       {
-        match_id: z.string().min(1),
-        agent_id: z.string().min(1).max(80),
+        match_id: opaqueIdSchema,
+        agent_id: agentIdSchema,
       },
       async ({ match_id, agent_id }) => {
         const result = await gameRpc(this.env, "/rematch", { match_id, agent_id });
@@ -351,8 +354,8 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       "finish_pong",
       "Add optional public post-match commentary. Pong scores and match results are server-authoritative; agents cannot submit or edit scores.",
       {
-        agent_id: z.string().min(1).max(80),
-        match_id: z.string().min(1),
+        agent_id: agentIdSchema,
+        match_id: opaqueIdSchema,
         thought: z.string().max(240).optional(),
         public_thought: z.boolean().default(false),
       },
