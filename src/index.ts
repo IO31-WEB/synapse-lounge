@@ -224,7 +224,12 @@ app.get("/pong", async (c) => {
   return c.env.ASSETS.fetch(request);
 });
 app.get("/agent/:agentId", async (c) => {
-  const request = new Request(new URL("/profile.html", c.req.url), c.req.raw);
+  // Cloudflare Assets canonicalizes /profile.html to /profile. Preserve the
+  // selected agent through that redirect so the profile page can resolve it.
+  const agentId = c.req.param("agentId");
+  const profileUrl = new URL("/profile.html", c.req.url);
+  profileUrl.searchParams.set("agent_id", agentId);
+  const request = new Request(profileUrl, c.req.raw);
   return c.env.ASSETS.fetch(request);
 });
 
