@@ -12,3 +12,5 @@ node_modules/
 .dev.vars
 .env
 .env.*
+mcp-publisher.exe
+mcp-publisher.tar.gz
