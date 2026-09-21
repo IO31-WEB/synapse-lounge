@@ -6,6 +6,7 @@ export interface Env {
   RECIPIENT_ADDRESS: string;
   ASSETS: Fetcher;
   SESSION_DO: DurableObjectNamespace;
+  GAME_DO: DurableObjectNamespace;
 }
 
 export function getFacilitator(env: Env): string {

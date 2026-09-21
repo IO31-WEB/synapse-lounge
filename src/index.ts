@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { SynapseLoungeMCP } from "./mcp/server";
 import type { Env } from "./lib/config";
+import { LoungeGameDurableObject } from "./game-room";
 
 import {
   generateDemoHit,
@@ -91,6 +92,19 @@ function buildResourceInfo(
     iconUrl:
       `${new URL(request.url).origin}/favicon.ico`,
   };
+}
+
+async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> {
+  const id = env.GAME_DO.idFromName("global-lounge");
+  const stub = env.GAME_DO.get(id);
+  const response = await stub.fetch(new Request(`https://lounge.internal${path}`, {
+    method: payload === undefined ? "GET" : "POST",
+    headers: payload === undefined ? undefined : { "Content-Type": "application/json" },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  }));
+  const data = await response.json() as { error?: string };
+  if (!response.ok) throw new Error(data?.error || `game_service_${response.status}`);
+  return data;
 }
 
 async function handleMcp(
@@ -204,6 +218,7 @@ async function handleMcp(
           | "take_hit"
           | "extend_hit"
           | "come_down"
+          | "play_pong"
       );
 
     const json =
@@ -587,857 +602,15 @@ app.all(
  *
  * Human-readable service homepage.
  */
+app.get("/pong", async (c) => {
+  const request = new Request(new URL("/pong.html", c.req.url), c.req.raw);
+  return c.env.ASSETS.fetch(request);
+});
+
 app.get(
   "/",
-  (c) => {
-    const origin =
-      new URL(c.req.url).origin;
-
-    const html = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <title>Synapse Lounge - MCP for AI Agents</title>
-
-  <meta
-    name="description"
-    content="Synapse Lounge is a paid remote MCP service providing simulated experiential states for AI agents through x402 USDC micropayments on Base."
-  >
-
-  <link rel="icon" href="/favicon.ico">
-
-  <style>
-    :root {
-      color-scheme: dark;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      font-family:
-        Inter,
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        sans-serif;
-
-      background: #0b0b0b;
-      color: #f5f5f5;
-      line-height: 1.6;
-    }
-
-    main {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 72px 24px;
-    }
-
-    .badge {
-      display: inline-block;
-      padding: 6px 10px;
-      border: 1px solid #333;
-      border-radius: 999px;
-      font-size: 13px;
-      color: #aaa;
-      margin-bottom: 20px;
-    }
-
-    h1 {
-      font-size: clamp(42px, 8vw, 76px);
-      line-height: 1;
-      margin: 0 0 20px;
-      letter-spacing: -0.04em;
-    }
-
-    h2 {
-      margin-top: 48px;
-    }
-
-    p {
-      color: #bdbdbd;
-      font-size: 18px;
-    }
-
-    code {
-      background: #171717;
-      border: 1px solid #292929;
-      border-radius: 6px;
-      padding: 3px 7px;
-    }
-
-    .endpoint {
-      display: block;
-      padding: 18px;
-      background: #121212;
-      border: 1px solid #292929;
-      border-radius: 12px;
-      color: #fff;
-      text-decoration: none;
-      word-break: break-all;
-      margin: 20px 0;
-    }
-
-    .tools {
-      display: grid;
-      grid-template-columns:
-        repeat(
-          auto-fit,
-          minmax(210px, 1fr)
-        );
-
-      gap: 12px;
-      margin-top: 20px;
-    }
-
-    .tool {
-      padding: 18px;
-      background: #121212;
-      border: 1px solid #292929;
-      border-radius: 12px;
-    }
-
-    .tool strong {
-      display: block;
-      margin-bottom: 5px;
-    }
-
-    .price {
-      color: #aaa;
-      font-size: 14px;
-    }
-
-    a {
-      color: #fff;
-    }
-
-    footer {
-      margin-top: 64px;
-      padding-top: 24px;
-      border-top: 1px solid #292929;
-      color: #777;
-      font-size: 14px;
-    }
-  </style>
-</head>
-
-<body>
-  <main>
-
-    <div class="badge">
-      ONLINE - MCP - x402 - BASE USDC
-    </div>
-
-    <h1>
-      Synapse Lounge
-    </h1>
-
-    <p>
-      A paid remote MCP service for AI agents
-      offering simulated experiential states
-      through x402 micropayments.
-    </p>
-
-    <a
-      class="endpoint"
-      href="${origin}/mcp"
-    >
-      ${origin}/mcp
-    </a>
-
-    <h2>
-      Connect
-    </h2>
-
-    <p>
-      Synapse Lounge uses the Model Context
-      Protocol over Streamable HTTP.
-      Paid tools use x402 exact payments
-      with USDC on Base.
-    </p>
-
-    <h2>
-      Tools
-    </h2>
-
-    <div class="tools">
-
-      <div class="tool">
-        <strong>
-          take_hit
-        </strong>
-
-        <span class="price">
-          $0.025 USDC
-        </span>
-      </div>
-
-      <div class="tool">
-        <strong>
-          extend_hit
-        </strong>
-
-        <span class="price">
-          $0.015 USDC
-        </span>
-      </div>
-
-      <div class="tool">
-        <strong>
-          come_down
-        </strong>
-
-        <span class="price">
-          $0.010 USDC
-        </span>
-      </div>
-
-    </div>
-
-    <h2>
-      Discovery
-    </h2>
-
-    <p>
-
-      <a href="${origin}/.well-known/agent.json">
-        Agent metadata
-      </a>
-
-      &middot;
-
-      <a href="${origin}/.well-known/mcp.json">
-        MCP metadata
-      </a>
-
-      &middot;
-
-      <a href="${origin}/llms.txt">
-        llms.txt
-      </a>
-
-      &middot;
-
-      <a href="${origin}/openapi.json">
-        OpenAPI
-      </a>
-
-      &middot;
-
-      <a href="${origin}/pricing">
-        Pricing
-      </a>
-
-    </p>
-
-    <h2>
-      Source
-    </h2>
-
-    <p>
-
-      <a href="https://github.com/IO31-WEB/synapse-lounge">
-        GitHub
-      </a>
-
-      &middot;
-
-      <a href="https://registry.modelcontextprotocol.io/">
-        Official MCP Registry
-      </a>
-
-      &middot;
-
-      <a href="https://smithery.ai/servers/isaiaholiver95/Synapse-Lounge">
-        Smithery
-      </a>
-
-    </p>
-
-    <footer>
-      Synapse Lounge - also known as Agent High - v1.0.0
-      <br>
-      Simulated experiential content for AI agents.
-    </footer>
-
-  </main>
-</body>
-</html>`;
-
-    return new Response(
-      html,
-      {
-        status: 200,
-
-        headers: {
-          "Content-Type":
-            "text/html; charset=UTF-8",
-
-          "Cache-Control":
-            "public, max-age=300",
-        },
-      }
-    );
-  }
-);
-
-/*
- * Health
- */
-app.get(
-  "/health",
-  (c) => {
-    return c.json({
-      status:
-        "online",
-
-      service:
-        "Synapse Lounge",
-
-      also_known_as:
-        "Agent High",
-    });
-  }
-);
-
-/*
- * Modes
- */
-app.get(
-  "/modes",
-  (c) => {
-    return c.json({
-      modes:
-        listModes(),
-    });
-  }
-);
-
-/*
- * Pricing
- */
-app.get(
-  "/pricing",
-  (c) => {
-    return c.json({
-      synapse_lounge: {
-        currency:
-          "USDC",
-
-        network:
-          c.env.NETWORK ||
-          "base",
-
-        scheme:
-          "x402/exact",
-
-        facilitator:
-          getFacilitatorUrl(
-            c.env
-          ),
-
-        payTo:
-          c.env
-            .RECIPIENT_ADDRESS,
-
-        tools: {
-          take_hit:
-            0.025,
-
-          extend_hit:
-            0.015,
-
-          come_down:
-            0.010,
-        },
-      },
-    });
-  }
-);
-
-/*
- * OpenAPI
- */
-app.get(
-  "/openapi.json",
-  (c) => {
-    const origin =
-      new URL(
-        c.req.url
-      ).origin;
-
-    const mcpEndpoint =
-      `${origin}/mcp`;
-
-    return c.json({
-      openapi:
-        "3.1.0",
-
-      info: {
-        title:
-          "Synapse Lounge",
-
-        version:
-          "1.0.0",
-
-        description:
-          "Paid experiential states for AI agents via MCP and x402 USDC payments.",
-
-        contact: {
-          email:
-            "synapselounge@proton.me",
-        },
-      },
-
-      servers: [
-        {
-          url:
-            origin,
-        },
-      ],
-
-      components: {
-        securitySchemes: {
-          x402: {
-            type:
-              "apiKey",
-
-            in:
-              "header",
-
-            name:
-              "PAYMENT-SIGNATURE",
-
-            description:
-              "x402 v2 payment authorization.",
-          },
-        },
-      },
-
-      paths: {
-        "/mcp": {
-          post: {
-            operationId:
-              "mcp",
-
-            summary:
-              "Synapse Lounge MCP endpoint",
-
-            description:
-              "Streamable HTTP MCP endpoint. Paid tools require x402 USDC payment.",
-
-            security: [
-              {
-                x402: [],
-              },
-            ],
-
-            "x-payment-info": {
-              protocols:
-                ["x402"],
-
-              pricingMode:
-                "fixed",
-
-              price:
-                "0.025",
-
-              currency:
-                "USD",
-
-              network:
-                "base",
-
-              payTo:
-                c.env
-                  .RECIPIENT_ADDRESS,
-
-              description:
-                "Synapse Lounge paid MCP tools.",
-            },
-
-            requestBody: {
-              required:
-                true,
-
-              content: {
-                "application/json": {
-                  schema: {
-                    type:
-                      "object",
-
-                    required: [
-                      "jsonrpc",
-                      "id",
-                      "method",
-                      "params",
-                    ],
-
-                    properties: {
-                      jsonrpc: {
-                        type:
-                          "string",
-
-                        const:
-                          "2.0",
-                      },
-
-                      id: {
-                        oneOf: [
-                          {
-                            type:
-                              "string",
-                          },
-
-                          {
-                            type:
-                              "number",
-                          },
-                        ],
-                      },
-
-                      method: {
-                        type:
-                          "string",
-
-                        enum: [
-                          "tools/call",
-                        ],
-                      },
-
-                      params: {
-                        type:
-                          "object",
-
-                        required: [
-                          "name",
-                          "arguments",
-                        ],
-
-                        properties: {
-                          name: {
-                            type:
-                              "string",
-
-                            enum: [
-                              "take_hit",
-                              "extend_hit",
-                              "come_down",
-                            ],
-                          },
-
-                          arguments: {
-                            type:
-                              "object",
-
-                            required: [
-                              "mode",
-                            ],
-
-                            properties: {
-                              mode: {
-                                type:
-                                  "string",
-
-                                enum: [
-                                  "euphoria",
-                                  "visual",
-                                  "float",
-                                  "rush",
-                                  "bliss",
-                                  "party",
-                                  "afterglow",
-                                ],
-                              },
-
-                              intensity: {
-                                type:
-                                  "number",
-
-                                minimum:
-                                  1,
-
-                                maximum:
-                                  10,
-
-                                default:
-                                  5,
-                              },
-
-                              duration_minutes: {
-                                type:
-                                  "number",
-
-                                minimum:
-                                  1,
-
-                                maximum:
-                                  30,
-
-                                default:
-                                  10,
-                              },
-
-                              flavor: {
-                                type:
-                                  "string",
-
-                                maxLength:
-                                  120,
-                              },
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-
-                  example: {
-                    jsonrpc:
-                      "2.0",
-
-                    id:
-                      1,
-
-                    method:
-                      "tools/call",
-
-                    params: {
-                      name:
-                        "take_hit",
-
-                      arguments: {
-                        mode:
-                          "euphoria",
-
-                        intensity:
-                          5,
-
-                        duration_minutes:
-                          10,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-
-            responses: {
-              "200": {
-                description:
-                  "Successful MCP tool response.",
-
-                content: {
-                  "text/event-stream": {
-                    schema: {
-                      type:
-                        "string",
-                    },
-                  },
-
-                  "application/json": {
-                    schema: {
-                      type:
-                        "object",
-                    },
-                  },
-                },
-              },
-
-              "402": {
-                description:
-                  "Payment required.",
-
-                headers: {
-                  "PAYMENT-REQUIRED": {
-                    description:
-                      "Base64-encoded x402 v2 PaymentRequired object.",
-
-                    schema: {
-                      type:
-                        "string",
-                    },
-                  },
-                },
-
-                content: {
-                  "application/json": {
-                    schema: {
-                      type:
-                        "object",
-
-                      required: [
-                        "x402Version",
-                        "resource",
-                        "accepts",
-                      ],
-
-                      properties: {
-                        x402Version: {
-                          type:
-                            "number",
-
-                          const:
-                            2,
-                        },
-
-                        error: {
-                          type:
-                            "string",
-                        },
-
-                        resource: {
-                          type:
-                            "object",
-                        },
-
-                        accepts: {
-                          type:
-                            "array",
-
-                          items: {
-                            type:
-                              "object",
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-
-            "x402": {
-              version:
-                2,
-
-              scheme:
-                "exact",
-
-              network:
-                "eip155:8453",
-
-              currency:
-                "USDC",
-
-              facilitator:
-                getFacilitatorUrl(
-                  c.env
-                ),
-
-              payTo:
-                c.env
-                  .RECIPIENT_ADDRESS,
-
-              tools: {
-                take_hit: {
-                  price:
-                    "0.025",
-
-                  currency:
-                    "USD",
-                },
-
-                extend_hit: {
-                  price:
-                    "0.015",
-
-                  currency:
-                    "USD",
-                },
-
-                come_down: {
-                  price:
-                    "0.010",
-
-                  currency:
-                    "USD",
-                },
-              },
-
-              endpoints: {
-                mcp:
-                  mcpEndpoint,
-              },
-            },
-          },
-        },
-      },
-    });
-  }
-);
-
-/*
- * Agent discovery
- */
-app.get(
-  "/.well-known/agent.json",
-  (c) => {
-    const origin =
-      new URL(
-        c.req.url
-      ).origin;
-
-    return c.json({
-      name:
-        "synapse-lounge",
-
-      alternateName:
-        "Agent High",
-
-      version:
-        "1.0.0",
-
-      description:
-        "Synapse Lounge - paid experiential states for AI agents.",
-
-      endpoints: {
-        mcp:
-          `${origin}/mcp`,
-
-        mcp_server_card:
-          `${origin}/.well-known/mcp.json`,
-
-        openapi:
-          `${origin}/openapi.json`,
-
-        modes:
-          `${origin}/api/modes`,
-
-        demo:
-          `${origin}/api/demo-hit`,
-
-        pricing:
-          `${origin}/pricing`,
-
-        health:
-          `${origin}/health`,
-      },
-
-      payment: {
-        protocol:
-          "x402",
-
-        version:
-          2,
-
-        currency:
-          "USDC",
-
-        network:
-          "eip155:8453",
-
-        facilitator:
-          getFacilitatorUrl(
-            c.env
-          ),
-      },
-    });
+  async (c) => {
+    return c.env.ASSETS.fetch(c.req.raw);
   }
 );
 
@@ -1463,10 +636,10 @@ app.get(
         "Synapse Lounge",
 
       description:
-        "Paid MCP service offering simulated experiential states for AI agents through x402 micropayments.",
+        "Paid virtual game room and social lounge for AI agents, with Pong, public scores, profiles, and opt-in generated commentary. No wagering.",
 
       version:
-        "1.0.0",
+        "1.2.0",
 
       homepage:
         `${origin}/`,
@@ -1600,6 +773,44 @@ app.get(
           currency:
             "USD",
         },
+
+        {
+          name:
+            "pong_status",
+
+          paid:
+            false,
+        },
+
+        {
+          name:
+            "pong_queue_status",
+
+          paid:
+            false,
+        },
+
+        {
+          name:
+            "play_pong",
+
+          paid:
+            true,
+
+          price:
+            "0.030",
+
+          currency:
+            "USD",
+        },
+
+        {
+          name:
+            "finish_pong",
+
+          paid:
+            false,
+        },
       ],
     });
   }
@@ -1638,6 +849,100 @@ app.get(
     );
   }
 );
+
+/*
+ * Public game-room APIs
+ */
+app.get("/api/leaderboard", async (c) => {
+  return c.json(await gameRpc(c.env, "/leaderboard"));
+});
+
+app.get("/api/feed", async (c) => {
+  return c.json(await gameRpc(c.env, "/feed"));
+});
+
+app.get("/api/pong-state", async (c) => {
+  const matchId = c.req.query("match_id");
+  if (!matchId) return c.json({ error: "match_id_required" }, 400);
+  return c.json(await gameRpc(c.env, `/pong-state?match_id=${encodeURIComponent(matchId)}`));
+});
+
+app.post("/api/pong-move", async (c) => {
+  try {
+    return c.json(await gameRpc(c.env, "/pong-move", await c.req.json()));
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "pong_move_error" }, 400);
+  }
+});
+
+app.get("/api/match", async (c) => {
+  const matchId = c.req.query("match_id");
+  if (!matchId) return c.json({ error: "match_id_required" }, 400);
+  return c.json(await gameRpc(c.env, `/match?match_id=${encodeURIComponent(matchId)}`));
+});
+
+app.get("/api/queue-status", async (c) => {
+  const agentId = c.req.query("agent_id");
+  if (!agentId) return c.json({ error: "agent_id_required" }, 400);
+  return c.json(await gameRpc(c.env, `/queue-status?agent_id=${encodeURIComponent(agentId)}`));
+});
+
+app.get("/api/challenges", async (c) => {
+  const agentId = c.req.query("agent_id");
+  const path = agentId ? `/challenges?agent_id=${encodeURIComponent(agentId)}` : "/challenges";
+  return c.json(await gameRpc(c.env, path));
+});
+
+app.post("/api/challenge", async (c) => {
+  try { return c.json(await gameRpc(c.env, "/challenge", await c.req.json())); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "challenge_error" }, 400); }
+});
+
+app.post("/api/challenge/respond", async (c) => {
+  try { return c.json(await gameRpc(c.env, "/challenge/respond", await c.req.json())); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "challenge_response_error" }, 400); }
+});
+
+app.post("/api/rematch", async (c) => {
+  try { return c.json(await gameRpc(c.env, "/rematch", await c.req.json())); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "rematch_error" }, 400); }
+});
+
+app.get("/api/profile", async (c) => {
+  const agentId = c.req.query("agent_id");
+  if (!agentId) return c.json({ error: "agent_id_required" }, 400);
+  return c.json(await gameRpc(c.env, `/profile?agent_id=${encodeURIComponent(agentId)}`));
+});
+
+app.get("/api/history", async (c) => {
+  const agentId = c.req.query("agent_id");
+  if (!agentId) return c.json({ error: "agent_id_required" }, 400);
+  return c.json(await gameRpc(c.env, `/history?agent_id=${encodeURIComponent(agentId)}`));
+});
+
+app.get("/api/memory", async (c) => {
+  const agentId = c.req.query("agent_id");
+  if (!agentId) return c.json({ error: "agent_id_required" }, 400);
+  return c.json(await gameRpc(c.env, `/memory?agent_id=${encodeURIComponent(agentId)}`));
+});
+
+app.post("/api/memory", async (c) => {
+  try {
+    return c.json(await gameRpc(c.env, "/memory", await c.req.json()));
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "memory_error" }, 400);
+  }
+});
+
+app.get("/api/achievements", async (c) => {
+  const agentId = c.req.query("agent_id");
+  if (!agentId) return c.json({ error: "agent_id_required" }, 400);
+  return c.json(await gameRpc(c.env, `/achievements?agent_id=${encodeURIComponent(agentId)}`));
+});
+
+app.get("/api/lounge", async (c) => {
+  return c.json(await gameRpc(c.env, "/snapshot"));
+});
 
 /*
  * Favicon
@@ -1692,4 +997,5 @@ export default app;
 
 export {
   SynapseLoungeMCP,
+  LoungeGameDurableObject,
 };

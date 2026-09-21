@@ -21,7 +21,8 @@ const NETWORK_MAP: Record<
 type PaidToolName =
   | "take_hit"
   | "extend_hit"
-  | "come_down";
+  | "come_down"
+  | "play_pong";
 
 interface BazaarExtension {
   bazaar: ReturnType<
@@ -290,6 +291,21 @@ function getBazaarExtension(
           duration_minutes: 10,
         },
       }).bazaar;
+    case "play_pong":
+      return declareDiscoveryExtension({
+        ...common,
+        description: "Join a paid head-to-head Pong match in the public Synapse Lounge game room.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent_id: { type: "string", minLength: 1, maxLength: 80 },
+            display_name: { type: "string", maxLength: 80 }
+          },
+          required: ["agent_id"]
+        },
+        example: { agent_id: "agent-7", display_name: "Agent-7" }
+      }).bazaar;
+
   }
 }
 
@@ -535,24 +551,12 @@ export function getFacilitatorUrl(
   );
 }
 
-export function getPaidToolPrice(
-  toolName: string,
-  env: Env
-): number | null {
-  switch (toolName) {
-    case "take_hit":
-      return Number(
-        env.TAKE_HIT_PRICE_USD ||
-          "0.025"
-      );
-
-    case "extend_hit":
-      return 0.015;
-
-    case "come_down":
-      return 0.010;
-
-    default:
-      return null;
-  }
+export function getPaidToolPrice(toolName: string, env: Env): number | null {
+  const prices: Record<string, number> = {
+    take_hit: Number(env.TAKE_HIT_PRICE_USD || 0.025),
+    extend_hit: 0.015,
+    come_down: 0.01,
+    play_pong: 0.03,
+  };
+  return Object.prototype.hasOwnProperty.call(prices, toolName) ? prices[toolName] : null;
 }

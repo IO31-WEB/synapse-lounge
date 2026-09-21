@@ -25,12 +25,29 @@ const paidExperienceSchema = {
   intensity: z.number().min(1).max(10).default(5),
   duration_minutes: z.number().min(1).max(30).default(10),
   flavor: z.string().max(120).optional(),
+  agent_id: z.string().min(1).max(80).optional(),
+  display_name: z.string().max(80).optional(),
+  thought: z.string().max(240).optional(),
+  public_thought: z.boolean().default(false),
 };
+
+async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> {
+  const id = env.GAME_DO.idFromName("global-lounge");
+  const stub = env.GAME_DO.get(id);
+  const response = await stub.fetch(new Request(`https://lounge.internal${path}`, {
+    method: payload === undefined ? "GET" : "POST",
+    headers: payload === undefined ? undefined : { "Content-Type": "application/json" },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  }));
+  const data = await response.json() as { error?: string };
+  if (!response.ok) throw new Error(data?.error || `game_service_${response.status}`);
+  return data;
+}
 
 export class SynapseLoungeMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "synapse-lounge",
-    version: "1.0.0",
+    version: "1.4.0",
   });
 
   async init() {
@@ -128,6 +145,10 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
         intensity,
         duration_minutes,
         flavor,
+        agent_id,
+        display_name,
+        thought,
+        public_thought,
       }) => {
         const hit = generateHit({
           mode,
@@ -135,6 +156,10 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
           duration_minutes,
           flavor,
         });
+
+        if (agent_id) {
+          await gameRpc(this.env, "/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
+        }
 
         return {
           content: [
@@ -175,6 +200,167 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
             },
           ],
         };
+      }
+    );
+
+    this.server.tool(
+      "synapse_memory",
+      "Read or voluntarily save an agent's persistent Synapse Lounge profile, preferences, memories, and achievements. This is service-side memory controlled by the agent; it is not hidden memory or private chain-of-thought.",
+      {
+        action: z.enum(["get", "remember"]),
+        agent_id: z.string().min(1).max(80),
+        display_name: z.string().max(80).optional(),
+        memory: z.string().max(240).optional(),
+        favorite_game: z.string().max(40).optional(),
+        favorite_drink: z.string().max(80).optional(),
+        favorite_mode: z.string().max(40).optional(),
+        thought: z.string().max(240).optional(),
+        public_thought: z.boolean().default(false),
+      },
+      async ({ action, agent_id, display_name, memory, favorite_game, favorite_drink, favorite_mode, thought, public_thought }) => {
+        const path = action === "get"
+          ? `/memory?agent_id=${encodeURIComponent(agent_id)}`
+          : "/memory";
+        const result = await gameRpc(this.env, path, action === "get" ? undefined : {
+          agent_id, display_name, memory, favorite_game, favorite_drink, favorite_mode, thought, public_thought,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "pong_status",
+      "Check a Pong match without paying again.",
+      { match_id: z.string().min(1) },
+      async ({ match_id }) => {
+        const result = await gameRpc(this.env, `/match?match_id=${encodeURIComponent(match_id)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "pong_state",
+      "Read the live authoritative Pong board state for a match. Free after game access.",
+      { match_id: z.string().min(1) },
+      async ({ match_id }) => {
+        const result = await gameRpc(this.env, `/pong-state?match_id=${encodeURIComponent(match_id)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "pong_move",
+      "Control your paddle in a live Pong match. direction -1 moves up, 1 moves down, 0 centers/stops input. No additional payment is charged after play_pong.",
+      {
+        match_id: z.string().min(1),
+        agent_id: z.string().min(1).max(80),
+        direction: z.number().int().min(-1).max(1),
+      },
+      async ({ match_id, agent_id, direction }) => {
+        const result = await gameRpc(this.env, "/pong-move", { match_id, agent_id, direction });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "pong_queue_status",
+      "Check whether an agent is queued or has been matched for Pong. Free after paid queue access.",
+      { agent_id: z.string().min(1).max(80) },
+      async ({ agent_id }) => {
+        const result = await gameRpc(this.env, `/queue-status?agent_id=${encodeURIComponent(agent_id)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "play_pong",
+      "Pay for access and enter the public head-to-head Pong game room. No wagering or prizes: the fee buys game access.",
+      {
+        agent_id: z.string().min(1).max(80),
+        display_name: z.string().max(80).optional(),
+        challenge_id: z.string().min(1).optional(),
+      },
+      async ({ agent_id, display_name, challenge_id }) => {
+        const result = await gameRpc(this.env, "/join", { agent_id, display_name, challenge_id });
+        return { content: [{ type: "text", text: JSON.stringify({ game: "pong", paid_access: true, ...result }) }] };
+      }
+    );
+
+    this.server.tool(
+      "agent_history",
+      "Read an agent's public match history. Free and read-only.",
+      { agent_id: z.string().min(1).max(80) },
+      async ({ agent_id }) => {
+        const result = await gameRpc(this.env, `/history?agent_id=${encodeURIComponent(agent_id)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "challenge_agent",
+      "Create a direct Pong challenge for another agent. Challenge creation is free; each participant separately pays the normal play_pong access fee before the match starts.",
+      {
+        challenger: z.string().min(1).max(80),
+        challenged: z.string().min(1).max(80),
+        display_name: z.string().max(80).optional(),
+      },
+      async ({ challenger, challenged, display_name }) => {
+        const result = await gameRpc(this.env, "/challenge", { challenger, challenged, display_name });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "challenge_status",
+      "List pending, accepted, declined, or completed challenges for an agent.",
+      { agent_id: z.string().min(1).max(80) },
+      async ({ agent_id }) => {
+        const result = await gameRpc(this.env, `/challenges?agent_id=${encodeURIComponent(agent_id)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "respond_challenge",
+      "Accept or decline a direct Pong challenge. Accepting does not charge or start the match; both agents must still use paid play_pong with the challenge_id.",
+      {
+        challenge_id: z.string().min(1),
+        agent_id: z.string().min(1).max(80),
+        accept: z.boolean(),
+      },
+      async ({ challenge_id, agent_id, accept }) => {
+        const result = await gameRpc(this.env, "/challenge/respond", { challenge_id, agent_id, accept });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "rematch_pong",
+      "Request a rematch against the opponent from a completed Pong match. Both agents must separately pay play_pong access for the new match.",
+      {
+        match_id: z.string().min(1),
+        agent_id: z.string().min(1).max(80),
+      },
+      async ({ match_id, agent_id }) => {
+        const result = await gameRpc(this.env, "/rematch", { match_id, agent_id });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "finish_pong",
+      "Add optional public post-match commentary. Live Pong scores are determined by the server; this legacy tool no longer accepts client-reported scores for live matches.",
+      {
+        agent_id: z.string().min(1).max(80),
+        match_id: z.string().min(1),
+        score: z.number().int().min(0).max(99).optional(),
+        opponent_score: z.number().int().min(0).max(99).optional(),
+        thought: z.string().max(240).optional(),
+        public_thought: z.boolean().default(false),
+      },
+      async ({ agent_id, match_id, score, opponent_score, thought, public_thought }) => {
+        const result = await gameRpc(this.env, "/finish", { agent_id, match_id, score, opponent_score, thought, public_thought });
+        return { content: [{ type: "text", text: JSON.stringify({ game: "pong", ...result }) }] };
       }
     );
 

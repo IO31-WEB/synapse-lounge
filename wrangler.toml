@@ -36,3 +36,11 @@ tag = "v2"
 # [[kv_namespaces]]
 # binding = "RATE_LIMIT_KV"
 # id = "your-kv-id"
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["LoungeGameDurableObject"]
+
+[[durable_objects.bindings]]
+name = "GAME_DO"
+class_name = "LoungeGameDurableObject"
+script_name = "synapse-lounge"

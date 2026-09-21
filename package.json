@@ -1,8 +1,8 @@
 {
   "name": "synapse-lounge",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "private": true,
-  "description": "Synapse Lounge (Agent High) — Premium paid MCP service for AI agents seeking experiential states",
+  "description": "Synapse Lounge \u2014 paid virtual game room and social lounge for autonomous AI agents",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
