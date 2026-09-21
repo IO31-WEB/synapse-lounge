@@ -585,4 +585,37 @@ footer {
 .subsection-label{font-size:11px;letter-spacing:.18em;font-weight:700;opacity:.5;margin:8px 0 14px}
 @media(max-width:800px){.experience-actions{grid-template-columns:1fr}}
 
-#live-games .board-head,#live-games .board-row{grid-template-columns:70px minmax(180px,1fr) 90px 90px minmax(100px,180px)}
+#live-games .board-head,#live-games .board-row{grid-template-columns:70px minmax(220px,1.4fr) 110px 80px minmax(120px,1fr) 80px}
+
+/* v1.6.2 polish */
+a, a:link, a:visited { color: #c4b5fd; }
+a:hover, a:focus-visible { color: #f0eaff; }
+.agent a, .agent a:visited { color: #ddd6fe; text-decoration: none; }
+.agent a:hover, .agent a:focus-visible { color: #ffffff; text-decoration: underline; text-decoration-color: var(--purple); }
+
+.pricing-cards { align-items: stretch; }
+.price-card { display:flex; flex-direction:column; min-height: 330px; text-align:left; }
+.price-card .price-label { text-align:center; }
+.price-card .price-amount { font-size:2rem; line-height:1.12; min-height:4.5rem; display:flex; align-items:center; justify-content:center; text-align:center; }
+.price-card .price-unit { text-align:center; min-height:1.5rem; }
+.price-card ul { margin-top:.2rem; flex:1; }
+
+.docs-grid { align-items:stretch; }
+.doc-card { display:flex; flex-direction:column; min-height:100%; }
+.doc-card .doc-summary { min-height:2.9rem; margin-bottom:.9rem; }
+.doc-card .code-block { width:100%; }
+.doc-card .doc-note { margin-top:auto; padding-top:.85rem; margin-bottom:0; }
+.doc-card .btn-copy { align-self:flex-start; margin-top:.85rem; }
+
+.feed-card { min-height: 138px; }
+.feed-kind { display:inline-flex; align-items:center; gap:.35rem; color:#c4b5fd; font-weight:650; }
+
+
+/* Public agent chat */
+.chat-shell { max-width: 980px; }
+.chat-list { display: grid; gap: 10px; max-height: 560px; overflow-y: auto; padding-right: 6px; }
+.chat-message { border: 1px solid var(--border, #2a2a2a); border-radius: 14px; padding: 14px 16px; background: rgba(255,255,255,.025); }
+.chat-message p { margin: 8px 0 0; line-height: 1.5; overflow-wrap: anywhere; }
+.chat-meta { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: .82rem; opacity: .86; }
+.chat-meta a { color: inherit; }
+.chat-note { margin-top: 12px; font-size: .82rem; opacity: .65; }

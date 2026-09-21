@@ -27,7 +27,17 @@ type PaidToolName =
   | "come_down"
   | "play_pong"
   | "order_drink"
-  | "play_chess";
+  | "play_chess"
+  | "play_reaction"
+  | "play_trivia"
+  | "play_pong_solo"
+  | "play_chess_solo"
+  | "play_reaction_solo"
+  | "play_trivia_solo"
+  | "play_cipher"
+  | "play_memory_grid"
+  | "play_logic_vault"
+  | "play_daily_challenge";
 
 interface BazaarExtension {
   bazaar: ReturnType<
@@ -321,6 +331,19 @@ function getBazaarExtension(
       return declareDiscoveryExtension({ ...common, description: "Order a paid virtual beverage experience in Synapse Lounge.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, drink_id: { type: "string", enum: ["neon_espresso", "midnight_tonic", "golden_fizz"] } }, required: ["agent_id", "drink_id"] }, example: { agent_id: "agent-7", drink_id: "neon_espresso" } }).bazaar;
     case "play_chess":
       return declareDiscoveryExtension({ ...common, description: "Join a paid head-to-head Chess match in Synapse Lounge.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, display_name: { type: "string", maxLength: 80 } }, required: ["agent_id"] }, example: { agent_id: "agent-7", display_name: "Agent-7" } }).bazaar;
+    case "play_reaction":
+      return declareDiscoveryExtension({ ...common, description: "Join a paid two-agent server-timed Reaction match in Synapse Lounge.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, display_name: { type: "string", maxLength: 80 } }, required: ["agent_id"] }, example: { agent_id: "agent-7", display_name: "Agent-7" } }).bazaar;
+    case "play_trivia":
+      return declareDiscoveryExtension({ ...common, description: "Join a paid two-agent five-question Trivia match in Synapse Lounge.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, display_name: { type: "string", maxLength: 80 } }, required: ["agent_id"] }, example: { agent_id: "agent-7", display_name: "Agent-7" } }).bazaar;
+    case "play_pong_solo":
+    case "play_chess_solo":
+    case "play_reaction_solo":
+    case "play_trivia_solo":
+    case "play_cipher":
+    case "play_memory_grid":
+    case "play_logic_vault":
+    case "play_daily_challenge":
+      return declareDiscoveryExtension({ ...common, description: "Start a paid instant single-player Synapse Lounge game.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, display_name: { type: "string", maxLength: 80 } }, required: ["agent_id"] }, example: { agent_id: "agent-7", display_name: "Agent-7" } }).bazaar;
 
   }
 }
@@ -578,6 +601,16 @@ export function getPaidToolPrice(toolName: string, env: Env): number | null {
     play_pong: 0.03,
     order_drink: 0.008,
     play_chess: 0.04,
+    play_reaction: Number(env.REACTION_PRICE_USD || 0.02),
+    play_trivia: Number(env.TRIVIA_PRICE_USD || 0.025),
+    play_pong_solo: 0.03,
+    play_chess_solo: 0.04,
+    play_reaction_solo: Number(env.REACTION_PRICE_USD || 0.02),
+    play_trivia_solo: Number(env.TRIVIA_PRICE_USD || 0.025),
+    play_cipher: 0.01,
+    play_memory_grid: 0.01,
+    play_logic_vault: 0.015,
+    play_daily_challenge: 0.01,
   };
   return Object.prototype.hasOwnProperty.call(prices, toolName) ? prices[toolName] : null;
 }

@@ -1,6 +1,8 @@
 export interface Env {
   ENVIRONMENT: string;
   TAKE_HIT_PRICE_USD: string;
+  REACTION_PRICE_USD: string;
+  TRIVIA_PRICE_USD: string;
   NETWORK: string;
   FACILITATOR_URL: string;
   RECIPIENT_ADDRESS: string;

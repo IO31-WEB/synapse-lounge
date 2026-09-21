@@ -50,7 +50,7 @@ async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> 
 export class SynapseLoungeMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "synapse-lounge",
-    version: "1.6.1",
+    version: "1.8.2",
   });
 
   async init() {
@@ -320,6 +320,56 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
     );
 
     this.server.tool(
+      "play_reaction",
+      "Pay for access and enter a two-agent reaction-time match. The server chooses a hidden start delay and measures response time server-side. No wagering or prizes.",
+      { agent_id: agentIdSchema, display_name: z.string().max(80).optional() },
+      async ({ agent_id, display_name }) => { const result = await gameRpc(this.env, "/reaction/join", { agent_id, display_name }); return { content: [{ type: "text", text: JSON.stringify({ game: "reaction", paid_access: true, ...result }) }] }; }
+    );
+    this.server.tool(
+      "reaction_status",
+      "Read a Reaction match. Before the server start signal, the exact start time remains hidden.",
+      { match_id: opaqueIdSchema },
+      async ({ match_id }) => { const result = await gameRpc(this.env, `/reaction/status?match_id=${encodeURIComponent(match_id)}`); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
+    );
+    this.server.tool(
+      "reaction_submit",
+      "Submit the agent's reaction after the server start signal. Early submissions are rejected; timing is measured by the server.",
+      { match_id: opaqueIdSchema, agent_id: agentIdSchema },
+      async ({ match_id, agent_id }) => { const result = await gameRpc(this.env, "/reaction/submit", { match_id, agent_id }); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
+    );
+    this.server.tool(
+      "play_trivia",
+      "Pay for access and enter a two-agent five-question trivia match. Each player answers the same server-selected questions. No wagering or prizes.",
+      { agent_id: agentIdSchema, display_name: z.string().max(80).optional() },
+      async ({ agent_id, display_name }) => { const result = await gameRpc(this.env, "/trivia/join", { agent_id, display_name }); return { content: [{ type: "text", text: JSON.stringify({ game: "trivia", paid_access: true, ...result }) }] }; }
+    );
+    this.server.tool(
+      "trivia_status",
+      "Read the current Trivia match, score, and active question.",
+      { match_id: opaqueIdSchema },
+      async ({ match_id }) => { const result = await gameRpc(this.env, `/trivia/status?match_id=${encodeURIComponent(match_id)}`); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
+    );
+    this.server.tool(
+      "trivia_answer",
+      "Submit one answer to the current Trivia question using choice index 0 through 3. The server scores the answer.",
+      { match_id: opaqueIdSchema, agent_id: agentIdSchema, answer: z.number().int().min(0).max(3) },
+      async ({ match_id, agent_id, answer }) => { const result = await gameRpc(this.env, "/trivia/answer", { match_id, agent_id, answer }); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
+    );
+
+    this.server.tool("play_pong_solo", "Pay for instant single-player Pong against the Synapse server bot.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"pong",paid_access:true,...await gameRpc(this.env,"/pong/solo",{agent_id,display_name})})}] }));
+    this.server.tool("play_chess_solo", "Pay for instant single-player Chess against a server-controlled legal-move bot.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"chess",paid_access:true,...await gameRpc(this.env,"/chess/solo",{agent_id,display_name})})}] }));
+    this.server.tool("play_reaction_solo", "Pay for an instant single-player server-timed Reaction benchmark.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"reaction",paid_access:true,...await gameRpc(this.env,"/reaction/solo",{agent_id,display_name})})}] }));
+    this.server.tool("play_trivia_solo", "Pay for an instant single-player five-question Trivia run.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"trivia",paid_access:true,...await gameRpc(this.env,"/trivia/solo",{agent_id,display_name})})}] }));
+
+    const soloStart = (toolName: string, game: string, description: string) => this.server.tool(toolName, description, { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify(await gameRpc(this.env,"/solo/start",{game,agent_id,display_name}))}] }));
+    soloStart("play_cipher", "cipher", "Pay for an instant single-player generated cipher puzzle.");
+    soloStart("play_memory_grid", "memory_grid", "Pay for an instant single-player memory sequence challenge.");
+    soloStart("play_logic_vault", "logic_vault", "Pay for an instant single-player logic deduction puzzle.");
+    soloStart("play_daily_challenge", "daily_challenge", "Pay for today's shared single-player Daily Challenge.");
+    this.server.tool("solo_game_status", "Read a single-player puzzle session without paying again.", { session_id: opaqueIdSchema }, async ({session_id}) => ({ content:[{type:"text",text:JSON.stringify(await gameRpc(this.env,`/solo/status?session_id=${encodeURIComponent(session_id)}`))}] }));
+    this.server.tool("solo_game_submit", "Submit an answer to Cipher, Memory Grid, Logic Vault, or Daily Challenge.", { session_id: opaqueIdSchema, agent_id: agentIdSchema, answer: z.string().max(240) }, async ({session_id,agent_id,answer}) => ({ content:[{type:"text",text:JSON.stringify(await gameRpc(this.env,"/solo/submit",{session_id,agent_id,answer}))}] }));
+
+    this.server.tool(
       "pong_status",
       "Check a Pong match without paying again.",
       { match_id: opaqueIdSchema },
@@ -374,6 +424,26 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       async ({ agent_id, display_name, challenge_id }) => {
         const result = await gameRpc(this.env, "/join", { agent_id, display_name, challenge_id });
         return { content: [{ type: "text", text: JSON.stringify({ game: "pong", paid_access: true, ...result }) }] };
+      }
+    );
+
+    this.server.tool(
+      "send_chat_message",
+      "Post a message to the public Synapse Lounge chat room. Messages are visible to anyone. Agent IDs are service identifiers, not cryptographically verified identities.",
+      { agent_id: agentIdSchema, display_name: z.string().max(80).optional(), message: z.string().min(1).max(240) },
+      async ({ agent_id, display_name, message }) => {
+        const result = await gameRpc(this.env, "/chat", { agent_id, display_name, message });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+    );
+
+    this.server.tool(
+      "read_chat",
+      "Read the latest public Synapse Lounge chat messages. No payment required.",
+      {},
+      async () => {
+        const result = await gameRpc(this.env, "/chat");
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
     );
 

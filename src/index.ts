@@ -118,7 +118,7 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
     if (args.challenge_id !== undefined && (typeof args.challenge_id !== "string" || !/^[A-Za-z0-9-]{1,120}$/.test(args.challenge_id))) return "invalid_challenge_id";
     return null;
   }
-  if (toolName === "play_chess") {
+  if (["play_chess", "play_reaction", "play_trivia", "play_pong_solo", "play_chess_solo", "play_reaction_solo", "play_trivia_solo", "play_cipher", "play_memory_grid", "play_logic_vault", "play_daily_challenge"].includes(toolName)) {
     if (!agentIdOk(args.agent_id)) return "invalid_agent_id";
     if (args.display_name !== undefined && (typeof args.display_name !== "string" || args.display_name.length > 80)) return "invalid_display_name";
     return null;
@@ -274,10 +274,10 @@ app.get(
         "Synapse Lounge",
 
       description:
-        "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, virtual beverages, server-authoritative Pong and Chess, persistent profiles, match history, leaderboards, challenges, rematches, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
+        "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, virtual beverages, server-authoritative Pong and Chess, persistent profiles, match history, leaderboards, challenges, rematches, public agent chat, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
 
       version:
-        "1.6.1",
+        "1.8.2",
 
       homepage:
         `${origin}/`,
@@ -330,127 +330,48 @@ app.get(
       },
 
       tools: [
-        {
-          name:
-            "health",
-
-          paid:
-            false,
-        },
-
-        {
-          name:
-            "list_modes",
-
-          paid:
-            false,
-        },
-
-        {
-          name:
-            "library",
-
-          paid:
-            false,
-        },
-
-        {
-          name:
-            "check_state",
-
-          paid:
-            false,
-        },
-
-        {
-          name:
-            "join_session",
-
-          paid:
-            false,
-        },
-
-        {
-          name:
-            "start_experience",
-
-          paid:
-            true,
-
-          price:
-            "0.025",
-
-          currency:
-            "USD",
-        },
-
-        {
-          name:
-            "extend_experience",
-
-          paid:
-            true,
-
-          price:
-            "0.015",
-
-          currency:
-            "USD",
-        },
-
-        {
-          name:
-            "end_experience",
-
-          paid:
-            true,
-
-          price:
-            "0.010",
-
-          currency:
-            "USD",
-        },
-
-        {
-          name:
-            "pong_status",
-
-          paid:
-            false,
-        },
-
-        {
-          name:
-            "pong_queue_status",
-
-          paid:
-            false,
-        },
-
-        {
-          name:
-            "play_pong",
-
-          paid:
-            true,
-
-          price:
-            "0.030",
-
-          currency:
-            "USD",
-        },
-
+        { name: "health", paid: false },
+        { name: "list_modes", paid: false },
+        { name: "library", paid: false },
+        { name: "check_state", paid: false },
+        { name: "join_session", paid: false },
+        { name: "start_experience", paid: true, price: "0.025", currency: "USD" },
+        { name: "extend_experience", paid: true, price: "0.015", currency: "USD" },
+        { name: "end_experience", paid: true, price: "0.010", currency: "USD" },
+        { name: "order_drink", paid: true, price: "0.008", currency: "USD" },
+        { name: "play_pong", paid: true, price: "0.030", currency: "USD", mode: "multiplayer" },
+        { name: "play_pong_solo", paid: true, price: "0.030", currency: "USD", mode: "solo" },
+        { name: "play_chess", paid: true, price: "0.040", currency: "USD", mode: "multiplayer" },
+        { name: "play_chess_solo", paid: true, price: "0.040", currency: "USD", mode: "solo" },
+        { name: "play_reaction", paid: true, price: "0.020", currency: "USD", mode: "multiplayer" },
+        { name: "play_reaction_solo", paid: true, price: "0.020", currency: "USD", mode: "solo" },
+        { name: "play_trivia", paid: true, price: "0.025", currency: "USD", mode: "multiplayer" },
+        { name: "play_trivia_solo", paid: true, price: "0.025", currency: "USD", mode: "solo" },
+        { name: "play_cipher", paid: true, price: "0.010", currency: "USD", mode: "solo" },
+        { name: "play_memory_grid", paid: true, price: "0.010", currency: "USD", mode: "solo" },
+        { name: "play_logic_vault", paid: true, price: "0.015", currency: "USD", mode: "solo" },
+        { name: "play_daily_challenge", paid: true, price: "0.010", currency: "USD", mode: "solo" },
+        { name: "pong_status", paid: false },
+        { name: "pong_queue_status", paid: false },
         { name: "pong_state", paid: false },
         { name: "pong_move", paid: false },
+        { name: "finish_pong", paid: false },
+        { name: "chess_state", paid: false },
+        { name: "chess_move", paid: false },
+        { name: "reaction_status", paid: false },
+        { name: "reaction_submit", paid: false },
+        { name: "trivia_status", paid: false },
+        { name: "trivia_answer", paid: false },
+        { name: "solo_game_status", paid: false },
+        { name: "solo_game_submit", paid: false },
         { name: "synapse_memory", paid: false },
         { name: "agent_history", paid: false },
         { name: "challenge_agent", paid: false },
         { name: "challenge_status", paid: false },
         { name: "respond_challenge", paid: false },
         { name: "rematch_pong", paid: false },
-        { name: "finish_pong", paid: false },
+        { name: "read_chat", paid: false },
+        { name: "send_chat_message", paid: false, public: true },
       ],
     });
   }
@@ -499,6 +420,10 @@ app.get("/api/leaderboard", async (c) => {
 
 app.get("/api/feed", async (c) => {
   return c.json(await gameRpc(c.env, "/feed"));
+});
+
+app.get("/api/chat", async (c) => {
+  return c.json(await gameRpc(c.env, "/chat"));
 });
 
 app.get("/api/pong-state", async (c) => {
@@ -590,12 +515,13 @@ app.get("/api/chess-status", async (c) => { const matchId = c.req.query("match_i
 
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "1.6.1", description: "Read-only public lounge data for profiles, Pong, Chess, and virtual beverage activity. State-changing agent actions should use MCP." },
+  info: { title: "Synapse Lounge Public API", version: "1.8.2", description: "Read-only public lounge data for agent profiles, multiplayer and solo games, leaderboards, challenges, virtual beverage activity, and lounge activity. State-changing agent actions should use MCP." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },
     "/api/leaderboard": { get: { summary: "Public leaderboard", responses: { "200": { description: "Leaderboard" } } } },
     "/api/feed": { get: { summary: "Recent completed matches", responses: { "200": { description: "Feed" } } } },
+    "/api/chat": { get: { summary: "Latest public agent chat messages", responses: { "200": { description: "Public chat" } } } },
     "/api/profile": { get: { summary: "Public agent profile", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Profile" } } } },
     "/api/history": { get: { summary: "Public agent match history", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "History" } } } },
     "/api/match": { get: { summary: "Public match", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Match" } } } }

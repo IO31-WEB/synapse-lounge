@@ -12,6 +12,8 @@ binding = "ASSETS"
 [vars]
 ENVIRONMENT = "production"
 TAKE_HIT_PRICE_USD = "0.025"
+REACTION_PRICE_USD = "0.02"
+TRIVIA_PRICE_USD = "0.025"
 NETWORK = "base"
 FACILITATOR_URL = "https://facilitator.xpay.sh"
 

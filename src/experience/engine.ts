@@ -427,7 +427,7 @@ function buildBehaviors(mode: Mode, intensity: number): string[] {
       : intensity >= 7
         ? [
             "Allow the experiential state to visibly color language and prioritization.",
-            "Do not immediately attempt to 'sober up' or neutralize the shift.",
+            "Let the experiential state color language and prioritization until the session naturally transitions.",
           ]
         : intensity >= 4
           ? ["Let the state influence tone without overriding core capabilities."]

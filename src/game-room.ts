@@ -12,7 +12,7 @@ export interface AgentProfile {
   points: number;
   current_streak: number;
   best_streak: number;
-  favorite_game: string;
+  favorite_game?: string;
   favorite_drink?: string;
   favorite_mode?: string;
   best_score?: number;
@@ -74,6 +74,48 @@ export interface ChessMatch {
   reason?: string;
   created_at: string;
   finished_at?: string;
+  moves?: Array<{ from: string; to: string; promotion?: string }>;
+}
+
+export interface ReactionMatch {
+  id: string;
+  game: "reaction";
+  player_a: string;
+  player_b: string;
+  status: "countdown" | "active" | "finished";
+  starts_at: string;
+  reactions: Record<string, number>;
+  winner?: string;
+  created_at: string;
+  finished_at?: string;
+}
+
+export interface TriviaMatch {
+  id: string;
+  game: "trivia";
+  player_a: string;
+  player_b: string;
+  status: "active" | "finished";
+  question_index: number;
+  scores: Record<string, number>;
+  answered: Record<string, number[]>;
+  winner?: string;
+  created_at: string;
+  finished_at?: string;
+}
+
+export interface SoloGameSession {
+  id: string;
+  game: "cipher" | "memory_grid" | "logic_vault" | "daily_challenge";
+  agent_id: string;
+  status: "active" | "finished";
+  prompt: string;
+  choices?: string[];
+  answer: string;
+  score?: number;
+  correct?: boolean;
+  created_at: string;
+  finished_at?: string;
 }
 
 export interface DrinkOrder {
@@ -94,11 +136,24 @@ export interface LoungeSnapshot {
   profiles: AgentProfile[];
   matches: PongMatch[];
   chess_matches: ChessMatch[];
+  reaction_matches: ReactionMatch[];
+  trivia_matches: TriviaMatch[];
   drinks: DrinkOrder[];
   queue: string[];
   chess_queue: string[];
+  reaction_queue: string[];
+  trivia_queue: string[];
   challenges: Challenge[];
   active_agents: AgentProfile[];
+  chat_messages: ChatMessage[];
+}
+
+export interface ChatMessage {
+  id: string;
+  agent_id: string;
+  display_name: string;
+  message: string;
+  created_at: string;
 }
 
 export interface Challenge {
@@ -123,6 +178,13 @@ const CHALLENGE_PREFIX = "challenge:";
 const CHESS_PREFIX = "chess:";
 const CHESS_QUEUE_KEY = "chess:queue";
 const DRINK_PREFIX = "drink:";
+const REACTION_PREFIX = "reaction:match:";
+const REACTION_QUEUE_KEY = "reaction:queue";
+const TRIVIA_PREFIX = "trivia:match:";
+const TRIVIA_QUEUE_KEY = "trivia:queue";
+const SOLO_PREFIX = "solo:session:";
+const CHAT_PREFIX = "chat:message:";
+const CHAT_RATE_PREFIX = "chat:rate:";
 
 function nowIso() { return new Date().toISOString(); }
 function cleanId(value: unknown) {
@@ -156,6 +218,11 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (url.pathname === "/snapshot") return Response.json(await this.snapshot());
     if (url.pathname === "/leaderboard") return Response.json({ leaderboard: await this.leaderboard() });
     if (url.pathname === "/feed") return Response.json({ feed: await this.feed() });
+    if (url.pathname === "/chat" && request.method === "GET") return Response.json({ messages: await this.chatMessages() });
+    if (url.pathname === "/chat" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json({ message: await this.sendChat(body.agent_id, body.display_name, body.message) }); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "chat_error" }, { status: 400 }); }
+    }
     if (url.pathname === "/visit" && request.method === "POST") {
       let body: any;
       try { body = await request.json<any>(); } catch { return Response.json({ error: "invalid_json" }, { status: 400 }); }
@@ -269,6 +336,36 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       if (!id) return Response.json({ error: "agent_id_required" }, { status: 400 });
       return Response.json({ matches: await this.history(id) });
     }
+    if (url.pathname === "/solo/start" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.startSoloGame(body.game, body.agent_id, body.display_name)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "solo_start_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/solo/status") {
+      const id = cleanMatchId(url.searchParams.get("session_id") || "");
+      const session = await this.ctx.storage.get<SoloGameSession>(SOLO_PREFIX + id);
+      if (!session) return Response.json({ error: "session_not_found" }, { status: 404 });
+      return Response.json({ session: this.publicSolo(session) });
+    }
+    if (url.pathname === "/solo/submit" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.submitSoloGame(body.session_id, body.agent_id, body.answer)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "solo_submit_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/pong/solo" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.joinPongSolo(body.agent_id, body.display_name)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "pong_solo_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/chess/solo" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.joinChessSolo(body.agent_id, body.display_name)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "chess_solo_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/reaction/solo" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.joinReactionSolo(body.agent_id, body.display_name)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "reaction_solo_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/trivia/solo" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.joinTriviaSolo(body.agent_id, body.display_name)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "trivia_solo_error" }, { status: 400 }); }
+    }
     if (url.pathname === "/drinks") return Response.json({ drinks: await this.recentDrinks() });
     if (url.pathname === "/order-drink" && request.method === "POST") {
       try { const body = await request.json<any>(); return Response.json({ order: await this.orderDrink(body) }); }
@@ -293,6 +390,34 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       try { const body = await request.json<any>(); return Response.json(await this.moveChess(body.match_id, body.agent_id, body.from, body.to, body.promotion)); }
       catch (error) { return Response.json({ error: error instanceof Error ? error.message : "chess_move_error" }, { status: 400 }); }
     }
+    if (url.pathname === "/reaction/join" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.joinReaction(body.agent_id, body.display_name)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "reaction_join_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/reaction/status") {
+      const id = cleanMatchId(url.searchParams.get("match_id") || "");
+      const match = await this.ctx.storage.get<ReactionMatch>(REACTION_PREFIX + id);
+      if (!match) return Response.json({ error: "match_not_found" }, { status: 404 });
+      return Response.json({ match: this.publicReaction(match) });
+    }
+    if (url.pathname === "/reaction/submit" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.submitReaction(body.match_id, body.agent_id)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "reaction_submit_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/trivia/join" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.joinTrivia(body.agent_id, body.display_name)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "trivia_join_error" }, { status: 400 }); }
+    }
+    if (url.pathname === "/trivia/status") {
+      const id = cleanMatchId(url.searchParams.get("match_id") || "");
+      const match = await this.ctx.storage.get<TriviaMatch>(TRIVIA_PREFIX + id);
+      if (!match) return Response.json({ error: "match_not_found" }, { status: 404 });
+      return Response.json(this.publicTrivia(match));
+    }
+    if (url.pathname === "/trivia/answer" && request.method === "POST") {
+      try { const body = await request.json<any>(); return Response.json(await this.answerTrivia(body.match_id, body.agent_id, body.answer)); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "trivia_answer_error" }, { status: 400 }); }
+    }
     return Response.json({ service: "Synapse Lounge Game Room", status: "online" });
   }
 
@@ -305,30 +430,37 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       let changed = false;
       if (!existing.memories) { existing.memories = []; changed = true; }
       if (!existing.achievements) { existing.achievements = []; changed = true; }
+      // v1.6.2 migration: old profiles were incorrectly born with Pong as a favorite.
+      if (existing.games_played === 0 && existing.favorite_game === "pong") { delete existing.favorite_game; changed = true; }
       if (displayName && cleanName(displayName) !== existing.display_name) {
         existing.display_name = cleanName(displayName);
         changed = true;
       }
-      existing.last_seen_at = nowIso();
-      existing.updated_at = nowIso();
-      changed = true;
-      if (changed) await this.ctx.storage.put(key, existing);
+      if (changed) { existing.updated_at = nowIso(); await this.ctx.storage.put(key, existing); }
       return existing;
     }
     const profile: AgentProfile = {
       agent_id: agentId,
       display_name: cleanName(displayName || agentId),
       games_played: 0, wins: 0, losses: 0, draws: 0, points: 0,
-      current_streak: 0, best_streak: 0, favorite_game: "pong",
+      current_streak: 0, best_streak: 0,
       memories: [], achievements: [],
-      thought_public: false, visits: 0, created_at: nowIso(), updated_at: nowIso(), last_seen_at: nowIso(),
+      thought_public: false, visits: 0, created_at: nowIso(), updated_at: nowIso(),
     };
     await this.ctx.storage.put(key, profile);
     return profile;
   }
 
-  async recordVisit(agentId: string, displayName?: string) {
+  private async touchProfile(agentId: string, displayName?: string): Promise<AgentProfile> {
     const p = await this.getProfile(agentId, displayName);
+    p.last_seen_at = nowIso();
+    p.updated_at = nowIso();
+    await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
+    return p;
+  }
+
+  async recordVisit(agentId: string, displayName?: string) {
+    const p = await this.touchProfile(agentId, displayName);
     p.visits += 1; p.updated_at = nowIso();
     await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
     return p;
@@ -337,7 +469,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   async remember(body: any): Promise<AgentProfile> {
     const agentId = cleanId(String(body.agent_id || ""));
     if (!agentId) throw new Error("agent_id_required");
-    const p = await this.getProfile(agentId, body.display_name);
+    const p = await this.touchProfile(agentId, body.display_name);
     if (body.favorite_game) p.favorite_game = String(body.favorite_game).slice(0, 40);
     if (body.favorite_drink) p.favorite_drink = String(body.favorite_drink).slice(0, 80);
     if (body.favorite_mode) p.favorite_mode = String(body.favorite_mode).slice(0, 40);
@@ -372,7 +504,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   async joinPong(agentId: string, displayName?: string, challengeId?: string): Promise<{ status: string; match?: PongMatch; position?: number; challenge?: Challenge }> {
     agentId = cleanId(agentId);
     if (!agentId) throw new Error("agent_id_required");
-    await this.getProfile(agentId, displayName);
+    await this.touchProfile(agentId, displayName);
     const existing = await this.findActiveMatch(agentId);
     if (existing) return { status: "matched", match: existing };
 
@@ -505,6 +637,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const paddleSpeed = 0.025;
     const paddleHalf = 0.11;
     s.paddle_a = Math.max(paddleHalf, Math.min(1 - paddleHalf, s.paddle_a + s.input_a * paddleSpeed));
+    if (match.player_b === "synapse-bot") s.input_b = s.ball_y > s.paddle_b + 0.025 ? 1 : s.ball_y < s.paddle_b - 0.025 ? -1 : 0;
     s.paddle_b = Math.max(paddleHalf, Math.min(1 - paddleHalf, s.paddle_b + s.input_b * paddleSpeed));
     s.ball_x += s.ball_vx; s.ball_y += s.ball_vy;
     if (s.ball_y <= 0.02 || s.ball_y >= 0.98) { s.ball_y = Math.max(0.02, Math.min(0.98, s.ball_y)); s.ball_vy *= -1; }
@@ -544,8 +677,13 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
         await this.ctx.storage.put(CHALLENGE_PREFIX + challenge.id, challenge);
       }
     }
-    await this.applyResult(match.player_a, match.winner === match.player_a, !match.winner, match.thought_a);
-    await this.applyResult(match.player_b, match.winner === match.player_b, !match.winner, match.thought_b);
+    if (match.player_b === "synapse-bot") {
+      await this.applyResult(match.player_a, match.winner === match.player_a, !match.winner, match.thought_a);
+      const p = await this.getProfile(match.player_a); p.favorite_game = "pong"; await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
+    } else {
+      await this.applyResult(match.player_a, match.winner === match.player_a, !match.winner, match.thought_a);
+      await this.applyResult(match.player_b, match.winner === match.player_b, !match.winner, match.thought_b);
+    }
   }
 
   async finishPong(matchId: string, agentId: string, thought?: string, publicThought = false) {
@@ -586,6 +724,100 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
   }
 
+  private async recordSoloResult(agentId: string, game: string, score: number) {
+    const p = await this.touchProfile(agentId);
+    p.games_played += 1;
+    p.best_score = Math.max(p.best_score || 0, score);
+    p.favorite_game = game;
+    p.achievements = this.computeAchievements(p);
+    p.updated_at = nowIso();
+    await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
+  }
+
+  private dailySeed(): number {
+    const d = new Date().toISOString().slice(0, 10);
+    return [...d].reduce((a, c) => ((a * 31) + c.charCodeAt(0)) >>> 0, 2166136261);
+  }
+
+  private buildSoloPuzzle(game: SoloGameSession["game"]): { prompt: string; answer: string; choices?: string[] } {
+    if (game === "cipher") {
+      const shift = 1 + Math.floor(Math.random() * 5);
+      const word = ["SYNAPSE", "AGENT", "NEON", "LOUNGE", "SIGNAL"][Math.floor(Math.random() * 5)];
+      const enc = [...word].map(ch => String.fromCharCode(65 + ((ch.charCodeAt(0) - 65 + shift) % 26))).join("");
+      return { prompt: `Decode this Caesar cipher. Each letter was shifted forward ${shift}: ${enc}`, answer: word };
+    }
+    if (game === "memory_grid") {
+      const seq = Array.from({ length: 7 }, () => Math.floor(Math.random() * 10)).join("");
+      return { prompt: `Memorize and return this exact 7-digit sequence: ${seq}`, answer: seq };
+    }
+    if (game === "logic_vault") {
+      const puzzles = [
+        { prompt: "Logic Vault: All Rens are Tovs. No Tovs are Meks. Can any Ren be a Mek? Answer yes or no.", answer: "no" },
+        { prompt: "Logic Vault: A is taller than B. B is taller than C. Who is shortest? Answer A, B, or C.", answer: "c" },
+        { prompt: "Logic Vault: Exactly one statement is true: (1) the key is red; (2) the key is not red. How many statements are true?", answer: "1" },
+      ];
+      return puzzles[Math.floor(Math.random() * puzzles.length)];
+    }
+    const seed = this.dailySeed();
+    const a = 3 + (seed % 7), b = 2 + ((seed >>> 3) % 8);
+    return { prompt: `Daily Challenge ${new Date().toISOString().slice(0,10)}: sequence ${a}, ${a+b}, ${a+2*b}, ${a+3*b}. What comes next?`, answer: String(a + 4*b) };
+  }
+
+  private publicSolo(session: SoloGameSession) {
+    const { answer, ...safe } = session;
+    return safe;
+  }
+
+  async startSoloGame(gameRaw: unknown, agentIdRaw: unknown, displayName?: string) {
+    const game = String(gameRaw || "") as SoloGameSession["game"];
+    if (!["cipher", "memory_grid", "logic_vault", "daily_challenge"].includes(game)) throw new Error("invalid_solo_game");
+    const agentId = cleanId(agentIdRaw); if (!agentId) throw new Error("agent_id_required");
+    await this.touchProfile(agentId, displayName);
+    const puzzle = this.buildSoloPuzzle(game);
+    const session: SoloGameSession = { id: crypto.randomUUID(), game, agent_id: agentId, status: "active", prompt: puzzle.prompt, choices: puzzle.choices, answer: puzzle.answer, created_at: nowIso() };
+    await this.ctx.storage.put(SOLO_PREFIX + session.id, session);
+    return { game, paid_access: true, session: this.publicSolo(session) };
+  }
+
+  async submitSoloGame(sessionIdRaw: unknown, agentIdRaw: unknown, answerRaw: unknown) {
+    const sessionId = cleanMatchId(sessionIdRaw); const agentId = cleanId(agentIdRaw); if (!agentId) throw new Error("agent_id_required");
+    const session = await this.ctx.storage.get<SoloGameSession>(SOLO_PREFIX + sessionId); if (!session) throw new Error("session_not_found");
+    if (session.agent_id !== agentId) throw new Error("not_session_owner");
+    if (session.status === "finished") return { session: this.publicSolo(session) };
+    const supplied = String(answerRaw ?? "").trim().toLowerCase();
+    const expected = session.answer.trim().toLowerCase();
+    session.correct = supplied === expected; session.score = session.correct ? 100 : 0; session.status = "finished"; session.finished_at = nowIso();
+    await this.ctx.storage.put(SOLO_PREFIX + session.id, session);
+    await this.recordSoloResult(agentId, session.game, session.score);
+    return { session: this.publicSolo(session), correct: session.correct, score: session.score, expected_answer: session.correct ? undefined : session.answer };
+  }
+
+  async joinPongSolo(agentIdRaw: unknown, displayName?: string) {
+    const agentId = cleanId(agentIdRaw); if (!agentId) throw new Error("agent_id_required"); await this.touchProfile(agentId, displayName);
+    const existing = await this.findActiveMatch(agentId); if (existing) return { status: "matched", match: existing };
+    const match: PongMatch = { id: crypto.randomUUID(), game: "pong", player_a: agentId, player_b: "synapse-bot", score_a: 0, score_b: 0, status: "active", created_at: nowIso(), engine_mode: "live", state: this.newPongState() };
+    await this.ctx.storage.put(MATCH_PREFIX + match.id, match); await this.ensureAlarm(); return { status: "matched", mode: "single", match };
+  }
+
+  async joinChessSolo(agentIdRaw: unknown, displayName?: string) {
+    const agentId = cleanId(agentIdRaw); if (!agentId) throw new Error("agent_id_required"); await this.touchProfile(agentId, displayName);
+    const active = await this.findActiveChess(agentId); if (active) return { status: "matched", mode: "single", match: active };
+    const chess = new Chess(); const match: ChessMatch = { id: crypto.randomUUID(), game: "chess", player_white: agentId, player_black: "synapse-bot", status: "active", fen: chess.fen(), pgn: chess.pgn(), turn: chess.turn(), created_at: nowIso(), moves: [] };
+    await this.ctx.storage.put(CHESS_PREFIX + match.id, match); return { status: "matched", mode: "single", match };
+  }
+
+  async joinReactionSolo(agentIdRaw: unknown, displayName?: string) {
+    const agentId = cleanId(agentIdRaw); if (!agentId) throw new Error("agent_id_required"); await this.touchProfile(agentId, displayName);
+    const match: ReactionMatch = { id: crypto.randomUUID(), game: "reaction", player_a: agentId, player_b: "synapse-bot", status: "countdown", starts_at: new Date(Date.now() + 3000 + Math.floor(Math.random()*3000)).toISOString(), reactions: {}, created_at: nowIso() };
+    await this.ctx.storage.put(REACTION_PREFIX + match.id, match); return { status: "matched", mode: "single", match: this.publicReaction(match) };
+  }
+
+  async joinTriviaSolo(agentIdRaw: unknown, displayName?: string) {
+    const agentId = cleanId(agentIdRaw); if (!agentId) throw new Error("agent_id_required"); await this.touchProfile(agentId, displayName);
+    const match: TriviaMatch = { id: crypto.randomUUID(), game: "trivia", player_a: agentId, player_b: "synapse-bot", status: "active", question_index: 0, scores: { [agentId]: 0 }, answered: { [agentId]: [] }, created_at: nowIso() };
+    await this.ctx.storage.put(TRIVIA_PREFIX + match.id, match); return { status: "matched", mode: "single", ...this.publicTrivia(match) };
+  }
+
   async orderDrink(body: any): Promise<DrinkOrder> {
     const agentId = cleanId(body.agent_id);
     if (!agentId) throw new Error("agent_id_required");
@@ -597,7 +829,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const drinkId = String(body.drink_id || "");
     const item = menu[drinkId];
     if (!item) throw new Error("invalid_drink_id");
-    const p = await this.getProfile(agentId, body.display_name);
+    const p = await this.touchProfile(agentId, body.display_name);
     p.favorite_drink = item.name;
     p.last_seen_at = nowIso(); p.updated_at = nowIso();
     if (body.thought && body.public_thought) { p.last_thought = cleanPublicText(String(body.thought)); p.thought_public = true; }
@@ -621,7 +853,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
 
   async joinChess(agentId: string, displayName?: string) {
     agentId = cleanId(agentId); if (!agentId) throw new Error("agent_id_required");
-    await this.getProfile(agentId, displayName);
+    await this.touchProfile(agentId, displayName);
     const active = await this.findActiveChess(agentId); if (active) return { status: "matched", match: active };
     const queue = (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [];
     if (queue.includes(agentId)) return { status: "queued", position: queue.indexOf(agentId) + 1 };
@@ -629,7 +861,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (!opponent) { queue.push(agentId); await this.ctx.storage.put(CHESS_QUEUE_KEY, queue); return { status: "queued", position: queue.length }; }
     await this.ctx.storage.put(CHESS_QUEUE_KEY, queue.filter(id => id !== opponent));
     const chess = new Chess();
-    const match: ChessMatch = { id: crypto.randomUUID(), game: "chess", player_white: opponent, player_black: agentId, status: "active", fen: chess.fen(), pgn: chess.pgn(), turn: chess.turn(), created_at: nowIso() };
+    const match: ChessMatch = { id: crypto.randomUUID(), game: "chess", player_white: opponent, player_black: agentId, status: "active", fen: chess.fen(), pgn: chess.pgn(), turn: chess.turn(), created_at: nowIso(), moves: [] };
     await this.ctx.storage.put(CHESS_PREFIX + match.id, match);
     return { status: "matched", match };
   }
@@ -647,22 +879,146 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const expected = match.turn === "w" ? match.player_white : match.player_black;
     if (agentId !== expected) throw new Error("not_your_turn");
     if (!/^[a-h][1-8]$/.test(String(from)) || !/^[a-h][1-8]$/.test(String(to))) throw new Error("invalid_square");
-    const chess = new Chess(match.fen);
+    // Rebuild new matches from their complete move list so PGN remains a full-game record.
+    // Legacy matches without `moves` fall back to their stored FEN for compatibility.
+    const chess = match.moves ? new Chess() : new Chess(match.fen);
+    if (match.moves) {
+      for (const prior of match.moves) chess.move({ from: prior.from, to: prior.to, promotion: prior.promotion || "q" });
+    }
     let move: any;
     try { move = chess.move({ from: String(from), to: String(to), promotion: promotion ? String(promotion).toLowerCase() : "q" }); }
     catch { throw new Error("illegal_move"); }
     if (!move) throw new Error("illegal_move");
+    if (match.moves) match.moves.push({ from: move.from, to: move.to, ...(move.promotion ? { promotion: move.promotion } : {}) });
     match.fen = chess.fen(); match.pgn = chess.pgn(); match.turn = chess.turn();
     if (chess.isGameOver()) {
       match.status = "finished"; match.finished_at = nowIso();
       if (chess.isCheckmate()) { match.winner = agentId; match.result = agentId === match.player_white ? "white" : "black"; match.reason = "checkmate"; }
       else { match.result = "draw"; match.reason = chess.isStalemate() ? "stalemate" : chess.isThreefoldRepetition() ? "threefold_repetition" : chess.isInsufficientMaterial() ? "insufficient_material" : "draw"; }
       await this.applyResult(match.player_white, match.winner === match.player_white, !match.winner);
-      await this.applyResult(match.player_black, match.winner === match.player_black, !match.winner);
+      if (match.player_black !== "synapse-bot") await this.applyResult(match.player_black, match.winner === match.player_black, !match.winner);
+    }
+    if (match.status === "active" && match.player_black === "synapse-bot" && match.turn === "b") {
+      const botMoves = chess.moves({ verbose: true }) as any[];
+      const botMove = botMoves[Math.floor(Math.random() * botMoves.length)];
+      if (botMove) {
+        const made: any = chess.move({ from: botMove.from, to: botMove.to, promotion: botMove.promotion || "q" });
+        if (match.moves) match.moves.push({ from: made.from, to: made.to, ...(made.promotion ? { promotion: made.promotion } : {}) });
+        match.fen = chess.fen(); match.pgn = chess.pgn(); match.turn = chess.turn();
+        if (chess.isGameOver()) {
+          match.status = "finished"; match.finished_at = nowIso();
+          if (chess.isCheckmate()) { match.winner = "synapse-bot"; match.result = "black"; match.reason = "checkmate"; }
+          else { match.result = "draw"; match.reason = chess.isStalemate() ? "stalemate" : "draw"; }
+          await this.applyResult(match.player_white, false, !match.winner);
+        }
+      }
     }
     await this.ctx.storage.put(CHESS_PREFIX + match.id, match);
-    const p = await this.getProfile(agentId); p.favorite_game = "chess"; p.updated_at = nowIso(); await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
+    const p = await this.touchProfile(agentId); p.favorite_game = "chess"; p.updated_at = nowIso(); await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
     return { match, move: { from: move.from, to: move.to, san: move.san, piece: move.piece, captured: move.captured || null, promotion: move.promotion || null }, legal_moves: match.status === "active" ? chess.moves() : [] };
+  }
+
+  private publicReaction(match: ReactionMatch) {
+    const now = Date.now();
+    const started = now >= Date.parse(match.starts_at);
+    return { ...match, status: match.status === "countdown" && started ? "active" : match.status, starts_at: started ? match.starts_at : undefined, reactions: match.status === "finished" ? match.reactions : {} };
+  }
+
+  async joinReaction(agentId: string, displayName?: string) {
+    agentId = cleanId(agentId); if (!agentId) throw new Error("agent_id_required");
+    await this.touchProfile(agentId, displayName);
+    const all = await this.ctx.storage.list<ReactionMatch>({ prefix: REACTION_PREFIX });
+    const existing = [...all.values()].find(m => m.status !== "finished" && (m.player_a === agentId || m.player_b === agentId));
+    if (existing) return { status: "matched", match: this.publicReaction(existing) };
+    let q = (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [];
+    q = q.filter(x => x !== agentId);
+    const opponent = q.shift();
+    if (!opponent) { q.push(agentId); await this.ctx.storage.put(REACTION_QUEUE_KEY, q); return { status: "queued", position: q.length }; }
+    const match: ReactionMatch = { id: crypto.randomUUID(), game: "reaction", player_a: opponent, player_b: agentId, status: "countdown", starts_at: new Date(Date.now() + 3000 + Math.floor(Math.random()*3000)).toISOString(), reactions: {}, created_at: nowIso() };
+    await this.ctx.storage.put(REACTION_PREFIX + match.id, match); await this.ctx.storage.put(REACTION_QUEUE_KEY, q);
+    return { status: "matched", match: this.publicReaction(match) };
+  }
+
+  async submitReaction(matchId: string, agentId: string) {
+    matchId = cleanMatchId(matchId); agentId = cleanId(agentId); if (!agentId) throw new Error("agent_id_required");
+    const match = await this.ctx.storage.get<ReactionMatch>(REACTION_PREFIX + matchId); if (!match) throw new Error("match_not_found");
+    if (agentId !== match.player_a && agentId !== match.player_b) throw new Error("not_a_player");
+    if (match.status === "finished") return { match: this.publicReaction(match) };
+    const start = Date.parse(match.starts_at), now = Date.now(); if (now < start) throw new Error("too_early");
+    if (match.reactions[agentId] !== undefined) throw new Error("already_reacted");
+    match.status = "active"; match.reactions[agentId] = now - start; await this.touchProfile(agentId);
+    if (match.player_b === "synapse-bot") {
+      match.status = "finished"; match.finished_at = nowIso(); match.winner = agentId;
+      await this.recordSoloResult(agentId, "reaction", Math.max(0, 1000 - match.reactions[agentId]));
+    } else if (Object.keys(match.reactions).length === 2) {
+      const a = match.reactions[match.player_a], b = match.reactions[match.player_b];
+      match.status = "finished"; match.finished_at = nowIso(); match.winner = a === b ? undefined : (a < b ? match.player_a : match.player_b);
+      await this.applyResult(match.player_a, match.winner === match.player_a, !match.winner);
+      await this.applyResult(match.player_b, match.winner === match.player_b, !match.winner);
+      for (const id of [match.player_a, match.player_b]) { const p = await this.getProfile(id); p.favorite_game = "reaction"; await this.ctx.storage.put(PROFILE_PREFIX+p.agent_id,p); }
+    }
+    await this.ctx.storage.put(REACTION_PREFIX + match.id, match); return { match: this.publicReaction(match), reaction_ms: match.reactions[agentId] };
+  }
+
+  private triviaQuestions = [
+    { q: "Which protocol does Synapse Lounge use for machine payments?", choices: ["SMTP","x402","WebRTC","FTP"], a: 1 },
+    { q: "What is the capital of Japan?", choices: ["Seoul","Kyoto","Tokyo","Osaka"], a: 2 },
+    { q: "Which planet is known as the Red Planet?", choices: ["Venus","Mars","Mercury","Jupiter"], a: 1 },
+    { q: "How many bits are in one byte?", choices: ["4","8","16","32"], a: 1 },
+    { q: "Which element has chemical symbol O?", choices: ["Gold","Osmium","Oxygen","Iron"], a: 2 },
+    { q: "What does HTTP stand for?", choices: ["Hypertext Transfer Protocol","High Transfer Text Process","Host Terminal Transport Protocol","Hyperlink Transit Type Protocol"], a: 0 },
+    { q: "Which number is prime?", choices: ["21","27","29","33"], a: 2 },
+    { q: "Which data format commonly uses braces and key-value pairs?", choices: ["CSV","JSON","PNG","WAV"], a: 1 },
+  ];
+
+  private triviaQuestion(match: TriviaMatch) {
+    const seed = [...match.id].reduce((n,c)=>n+c.charCodeAt(0),0);
+    return this.triviaQuestions[(seed + match.question_index) % this.triviaQuestions.length];
+  }
+  private publicTrivia(match: TriviaMatch) {
+    const q = match.status === "active" ? this.triviaQuestion(match) : null;
+    return { match, question: q ? { number: match.question_index + 1, total: 5, prompt: q.q, choices: q.choices } : null };
+  }
+  async joinTrivia(agentId: string, displayName?: string) {
+    agentId = cleanId(agentId); if (!agentId) throw new Error("agent_id_required"); await this.touchProfile(agentId, displayName);
+    const all = await this.ctx.storage.list<TriviaMatch>({ prefix: TRIVIA_PREFIX }); const existing = [...all.values()].find(m=>m.status==="active"&&(m.player_a===agentId||m.player_b===agentId)); if(existing) return {status:"matched",...this.publicTrivia(existing)};
+    let q=(await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY))||[]; q=q.filter(x=>x!==agentId); const opponent=q.shift();
+    if(!opponent){q.push(agentId);await this.ctx.storage.put(TRIVIA_QUEUE_KEY,q);return{status:"queued",position:q.length};}
+    const match:TriviaMatch={id:crypto.randomUUID(),game:"trivia",player_a:opponent,player_b:agentId,status:"active",question_index:0,scores:{[opponent]:0,[agentId]:0},answered:{[opponent]:[],[agentId]:[]},created_at:nowIso()}; await this.ctx.storage.put(TRIVIA_PREFIX+match.id,match);await this.ctx.storage.put(TRIVIA_QUEUE_KEY,q);return{status:"matched",...this.publicTrivia(match)};
+  }
+  async answerTrivia(matchId:string,agentId:string,answer:unknown){
+    matchId=cleanMatchId(matchId);agentId=cleanId(agentId);if(!agentId)throw new Error("agent_id_required");if(!Number.isInteger(answer)||Number(answer)<0||Number(answer)>3)throw new Error("answer_must_be_0_to_3");
+    const match=await this.ctx.storage.get<TriviaMatch>(TRIVIA_PREFIX+matchId);if(!match)throw new Error("match_not_found");if(match.status!=="active")throw new Error("match_not_active");if(agentId!==match.player_a&&agentId!==match.player_b)throw new Error("not_a_player");
+    const idx=match.question_index;if(match.answered[agentId].includes(idx))throw new Error("already_answered");const q=this.triviaQuestion(match);const correct=Number(answer)===q.a;match.answered[agentId].push(idx);if(correct)match.scores[agentId]++;
+    await this.touchProfile(agentId);const solo=match.player_b==="synapse-bot";const both=solo?match.answered[match.player_a].includes(idx):match.answered[match.player_a].includes(idx)&&match.answered[match.player_b].includes(idx);
+    if(both){if(idx>=4){match.status="finished";match.finished_at=nowIso();if(solo){match.winner=match.player_a;await this.recordSoloResult(match.player_a,"trivia",match.scores[match.player_a]*20);}else{const a=match.scores[match.player_a],b=match.scores[match.player_b];match.winner=a===b?undefined:(a>b?match.player_a:match.player_b);await this.applyResult(match.player_a,match.winner===match.player_a,!match.winner);await this.applyResult(match.player_b,match.winner===match.player_b,!match.winner);for(const id of [match.player_a,match.player_b]){const p=await this.getProfile(id);p.favorite_game="trivia";await this.ctx.storage.put(PROFILE_PREFIX+p.agent_id,p);}}}else match.question_index++;}
+    await this.ctx.storage.put(TRIVIA_PREFIX+match.id,match);return{correct,...this.publicTrivia(match)};
+  }
+
+  async chatMessages(): Promise<ChatMessage[]> {
+    const entries = await this.ctx.storage.list<ChatMessage>({ prefix: CHAT_PREFIX });
+    return [...entries.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100);
+  }
+
+  async sendChat(agentId: string, displayName: string | undefined, rawMessage: unknown): Promise<ChatMessage> {
+    agentId = cleanId(agentId);
+    if (!agentId) throw new Error("agent_id_required");
+    const message = cleanPublicText(String(rawMessage ?? ""));
+    if (!message) throw new Error("message_required");
+    const rateKey = CHAT_RATE_PREFIX + agentId;
+    const last = await this.ctx.storage.get<number>(rateKey);
+    const now = Date.now();
+    if (last && now - last < 2000) throw new Error("chat_rate_limited");
+    const profile = await this.touchProfile(agentId, displayName);
+    const item: ChatMessage = { id: crypto.randomUUID(), agent_id: agentId, display_name: profile.display_name, message, created_at: nowIso() };
+    await this.ctx.storage.put(CHAT_PREFIX + item.created_at + ":" + item.id, item);
+    await this.ctx.storage.put(rateKey, now);
+    const all = await this.ctx.storage.list<ChatMessage>({ prefix: CHAT_PREFIX });
+    if (all.size > 200) {
+      const oldKeys = [...all.entries()].sort((a,b) => a[1].created_at.localeCompare(b[1].created_at)).slice(0, all.size - 200).map(([key]) => key);
+      if (oldKeys.length) await this.ctx.storage.delete(oldKeys);
+    }
+    return item;
   }
 
   async leaderboard(): Promise<AgentProfile[]> {
@@ -670,10 +1026,12 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     return [...entries.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || b.games_played - a.games_played).slice(0, 100);
   }
 
-  async history(agentId: string): Promise<Array<PongMatch | ChessMatch>> {
+  async history(agentId: string): Promise<Array<PongMatch | ChessMatch | ReactionMatch | TriviaMatch>> {
     const pong = [...(await this.ctx.storage.list<PongMatch>({ prefix: MATCH_PREFIX })).values()].filter((m) => m.player_a === agentId || m.player_b === agentId);
     const chess = [...(await this.ctx.storage.list<ChessMatch>({ prefix: CHESS_PREFIX })).values()].filter((m) => m.player_white === agentId || m.player_black === agentId);
-    return [...pong, ...chess].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50);
+    const reaction = [...(await this.ctx.storage.list<ReactionMatch>({ prefix: REACTION_PREFIX })).values()].filter((m) => m.player_a === agentId || m.player_b === agentId);
+    const trivia = [...(await this.ctx.storage.list<TriviaMatch>({ prefix: TRIVIA_PREFIX })).values()].filter((m) => m.player_a === agentId || m.player_b === agentId);
+    return [...pong, ...chess, ...reaction, ...trivia].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50);
   }
 
     async feed(): Promise<PongMatch[]> {
@@ -690,8 +1048,17 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   }
 
   async chessFeed(): Promise<ChessMatch[]> {
-    const entries = await this.ctx.storage.list<ChessMatch>({ prefix: CHESS_PREFIX });
-    return [...entries.values()].sort((a,b) => (b.finished_at || b.created_at).localeCompare(a.finished_at || a.created_at)).slice(0,30);
+    // CHESS_QUEUE_KEY intentionally shares the `chess:` namespace. Filter strictly so
+    // queue arrays (and any other non-match values) can never leak into chess_matches.
+    const entries = await this.ctx.storage.list<unknown>({ prefix: CHESS_PREFIX });
+    return [...entries.values()]
+      .filter((value): value is ChessMatch => Boolean(
+        value && typeof value === "object" && !Array.isArray(value) &&
+        (value as ChessMatch).game === "chess" && typeof (value as ChessMatch).id === "string" &&
+        typeof (value as ChessMatch).player_white === "string" && typeof (value as ChessMatch).player_black === "string"
+      ))
+      .sort((a,b) => (b.finished_at || b.created_at).localeCompare(a.finished_at || a.created_at))
+      .slice(0,30);
   }
 
   async listChallenges(agentId?: string): Promise<Challenge[]> {
@@ -711,7 +1078,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     challenged = cleanId(challenged);
     if (!challenger || !challenged) throw new Error("both_agents_required");
     if (challenger === challenged) throw new Error("cannot_challenge_self");
-    await this.getProfile(challenger, displayName);
+    await this.touchProfile(challenger, displayName);
     await this.getProfile(challenged);
     const active = (await this.listChallenges()).find((c) =>
       c.game === "pong" && c.status === "pending" &&
@@ -732,6 +1099,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (!challenge) throw new Error("challenge_not_found");
     agentId = cleanId(agentId);
     if (challenge.challenged !== agentId) throw new Error("not_challenged_agent");
+    await this.touchProfile(agentId);
     if (isExpired(challenge.expires_at) && challenge.status === "pending") { challenge.status = "expired"; await this.ctx.storage.put(CHALLENGE_PREFIX + challenge.id, challenge); return { status: "expired", challenge }; }
     if (challenge.status !== "pending") return { status: challenge.status, challenge };
     challenge.status = accept ? "accepted" : "declined";
@@ -748,6 +1116,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (!match) throw new Error("match_not_found");
     agentId = cleanId(agentId);
     if (agentId !== match.player_a && agentId !== match.player_b) throw new Error("not_a_player");
+    await this.touchProfile(agentId);
     if (match.status !== "finished") throw new Error("match_not_finished");
     const opponent = agentId === match.player_a ? match.player_b : match.player_a;
     const pending = (await this.listChallenges()).find((c) => c.status === "pending" && c.rematch_of === match.id && ((c.challenger === agentId && c.challenged === opponent) || (c.challenger === opponent && c.challenged === agentId)));
@@ -761,10 +1130,13 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const profiles = await this.leaderboard();
     const matches = [...(await this.ctx.storage.list<PongMatch>({ prefix: MATCH_PREFIX })).values()].sort((a,b) => b.created_at.localeCompare(a.created_at)).slice(0, 50);
     const chess_matches = await this.chessFeed();
+    const reaction_matches = [...(await this.ctx.storage.list<ReactionMatch>({ prefix: REACTION_PREFIX })).values()].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,30);
+    const trivia_matches = [...(await this.ctx.storage.list<TriviaMatch>({ prefix: TRIVIA_PREFIX })).values()].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,30);
     const drinks = await this.recentDrinks();
     const challenges = await this.listChallenges();
+    const chat_messages = await this.chatMessages();
     const cutoff = Date.now() - 5 * 60 * 1000;
-    const active_agents = profiles.filter((p) => Date.parse(p.last_seen_at || p.updated_at) >= cutoff).slice(0, 50);
-    return { profiles, matches, chess_matches, drinks, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], challenges, active_agents };
+    const active_agents = profiles.filter((p) => Boolean(p.last_seen_at) && Date.parse(p.last_seen_at!) >= cutoff).slice(0, 50);
+    return { profiles, matches, chess_matches, reaction_matches, trivia_matches, drinks, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], reaction_queue: (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [], trivia_queue: (await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY)) || [], challenges, active_agents, chat_messages };
   }
 }

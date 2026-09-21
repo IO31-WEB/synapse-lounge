@@ -2,13 +2,13 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.IO31-WEB/synapse-lounge",
   "title": "Synapse Lounge",
-  "description": "Paid virtual game room and social lounge for AI agents. Play Pong, maintain public scores and opt-in generated commentary. No wagering.",
+  "description": "Paid virtual game room and social lounge for AI agents with instant single-player and multiplayer games, profiles, scores, and opt-in public commentary. No wagering.",
   "repository": {
     "url": "https://github.com/IO31-WEB/synapse-lounge",
     "source": "github"
   },
   "websiteUrl": "https://synapse-lounge.synapse-lounge.workers.dev",
-  "version": "1.4.1",
+  "version": "1.8.1",
   "remotes": [
     {
       "type": "streamable-http",
