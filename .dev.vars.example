@@ -4,3 +4,5 @@ NETWORK=base-sepolia
 TAKE_HIT_PRICE_USD=0.025
 FACILITATOR_URL=https://x402.org/facilitator
 ENVIRONMENT=development
+# Optional operator analytics protection. Set as a Worker secret in production.
+ADMIN_TOKEN=replace-with-a-long-random-secret

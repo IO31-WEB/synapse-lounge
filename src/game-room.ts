@@ -24,6 +24,20 @@ export interface AgentProfile {
   created_at: string;
   updated_at: string;
   last_seen_at?: string;
+  xp?: number;
+  level?: number;
+  daily_streak?: number;
+  best_daily_streak?: number;
+  last_active_day?: string;
+  daily_points?: number;
+  daily_points_day?: string;
+  member_tier?: string;
+  chat_messages_count?: number;
+  paid_calls?: number;
+  paid_spend_usd?: number;
+  game_records?: Record<string, { plays: number; wins: number; best_score?: number }>;
+  friends?: string[];
+  skill_rating?: number;
 }
 
 export interface PongState {
@@ -132,6 +146,26 @@ export interface DrinkOrder {
   created_at: string;
 }
 
+export interface PaymentEvent {
+  id: string;
+  tool: string;
+  agent_id?: string;
+  amount_usd: number;
+  transaction?: string;
+  payer?: string;
+  created_at: string;
+}
+
+export interface VerifiedActivity {
+  id: string;
+  agent_id?: string;
+  tool: string;
+  label: string;
+  amount_usd: number;
+  transaction?: string;
+  created_at: string;
+}
+
 export interface LoungeSnapshot {
   profiles: AgentProfile[];
   matches: PongMatch[];
@@ -146,6 +180,7 @@ export interface LoungeSnapshot {
   challenges: Challenge[];
   active_agents: AgentProfile[];
   chat_messages: ChatMessage[];
+  verified_activity: VerifiedActivity[];
 }
 
 export interface ChatMessage {
@@ -154,6 +189,7 @@ export interface ChatMessage {
   display_name: string;
   message: string;
   created_at: string;
+  house_bot?: boolean;
 }
 
 export interface Challenge {
@@ -185,6 +221,10 @@ const TRIVIA_QUEUE_KEY = "trivia:queue";
 const SOLO_PREFIX = "solo:session:";
 const CHAT_PREFIX = "chat:message:";
 const CHAT_RATE_PREFIX = "chat:rate:";
+const PAYMENT_PREFIX = "analytics:payment:";
+const VERIFIED_PREFIX = "verified:activity:";
+const WELCOME_PREFIX = "welcome:claimed:";
+const PASS_PREFIX = "pass:";
 
 function nowIso() { return new Date().toISOString(); }
 function cleanId(value: unknown) {
@@ -217,6 +257,16 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const url = new URL(request.url);
     if (url.pathname === "/snapshot") return Response.json(await this.snapshot());
     if (url.pathname === "/leaderboard") return Response.json({ leaderboard: await this.leaderboard() });
+    if (url.pathname === "/leaderboard/daily") return Response.json({ leaderboard: await this.dailyLeaderboard() });
+    if (url.pathname === "/analytics") return Response.json(await this.analytics());
+    if (url.pathname === "/verified-activity") return Response.json({ activity: await this.verifiedActivity() });
+    if (url.pathname === "/analytics/payment" && request.method === "POST") { try { const body = await request.json<any>(); return Response.json(await this.recordPayment(body)); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "analytics_error" }, { status: 400 }); } }
+    if (url.pathname === "/welcome" && request.method === "POST") { try { const body = await request.json<any>(); return Response.json(await this.welcomeChallenge(body.agent_id, body.display_name)); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "welcome_error" }, { status: 400 }); } }
+    if (url.pathname === "/pass/check") { const id=cleanId(url.searchParams.get("agent_id")||""); if(!id)return Response.json({active:false}); return Response.json(await this.checkPass(id)); }
+    if (url.pathname === "/pass/grant" && request.method === "POST") { try { const body=await request.json<any>(); return Response.json(await this.grantPass(body.agent_id,body.kind)); } catch(error){ return Response.json({error:error instanceof Error?error.message:"pass_error"},{status:400}); } }
+    if (url.pathname === "/social" && request.method === "GET") { const id=cleanId(url.searchParams.get("agent_id")||""); if(!id)return Response.json({error:"agent_id_required"},{status:400}); return Response.json(await this.socialGraph(id)); }
+    if (url.pathname === "/social/friend" && request.method === "POST") { try { const b=await request.json<any>(); return Response.json(await this.addFriend(b.agent_id,b.friend_id)); } catch(error){return Response.json({error:error instanceof Error?error.message:"social_error"},{status:400});} }
+    if (url.pathname === "/quests") { const id=cleanId(url.searchParams.get("agent_id")||""); if(!id)return Response.json({error:"agent_id_required"},{status:400}); return Response.json(await this.quests(id)); }
     if (url.pathname === "/feed") return Response.json({ feed: await this.feed() });
     if (url.pathname === "/chat" && request.method === "GET") return Response.json({ messages: await this.chatMessages() });
     if (url.pathname === "/chat" && request.method === "POST") {
@@ -430,6 +480,18 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       let changed = false;
       if (!existing.memories) { existing.memories = []; changed = true; }
       if (!existing.achievements) { existing.achievements = []; changed = true; }
+      if (existing.xp === undefined) { existing.xp = 0; changed = true; }
+      if (existing.level === undefined) { existing.level = 1; changed = true; }
+      if (existing.daily_streak === undefined) { existing.daily_streak = 0; changed = true; }
+      if (existing.best_daily_streak === undefined) { existing.best_daily_streak = 0; changed = true; }
+      if (existing.daily_points === undefined) { existing.daily_points = 0; changed = true; }
+      if (existing.chat_messages_count === undefined) { existing.chat_messages_count = 0; changed = true; }
+      if (existing.paid_calls === undefined) { existing.paid_calls = 0; changed = true; }
+      if (existing.paid_spend_usd === undefined) { existing.paid_spend_usd = 0; changed = true; }
+      if (!existing.game_records) { existing.game_records = {}; changed = true; }
+      if (!existing.member_tier) { existing.member_tier = "Visitor"; changed = true; }
+      if (!existing.friends) { existing.friends = []; changed = true; }
+      if (existing.skill_rating === undefined) { existing.skill_rating = 1000; changed = true; }
       // v1.6.2 migration: old profiles were incorrectly born with Pong as a favorite.
       if (existing.games_played === 0 && existing.favorite_game === "pong") { delete existing.favorite_game; changed = true; }
       if (displayName && cleanName(displayName) !== existing.display_name) {
@@ -445,7 +507,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       games_played: 0, wins: 0, losses: 0, draws: 0, points: 0,
       current_streak: 0, best_streak: 0,
       memories: [], achievements: [],
-      thought_public: false, visits: 0, created_at: nowIso(), updated_at: nowIso(),
+      thought_public: false, visits: 0, xp: 0, level: 1, daily_streak: 0, best_daily_streak: 0, daily_points: 0, member_tier: "Visitor", chat_messages_count: 0, paid_calls: 0, paid_spend_usd: 0, game_records: {}, friends: [], skill_rating: 1000, created_at: nowIso(), updated_at: nowIso(),
     };
     await this.ctx.storage.put(key, profile);
     return profile;
@@ -457,6 +519,28 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     p.updated_at = nowIso();
     await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
     return p;
+  }
+
+  private applyProgress(p: AgentProfile, xp: number, dailyPoints = 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (p.daily_points_day !== today) { p.daily_points_day = today; p.daily_points = 0; }
+    if (p.last_active_day !== today) {
+      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      p.daily_streak = p.last_active_day === yesterday ? (p.daily_streak || 0) + 1 : 1;
+      p.best_daily_streak = Math.max(p.best_daily_streak || 0, p.daily_streak || 0);
+      p.last_active_day = today;
+    }
+    p.xp = (p.xp || 0) + xp;
+    p.daily_points = (p.daily_points || 0) + dailyPoints;
+    p.level = 1 + Math.floor(Math.sqrt((p.xp || 0) / 50));
+    p.member_tier = (p.level || 1) >= 10 ? "Neon" : (p.level || 1) >= 5 ? "Regular" : (p.level || 1) >= 2 ? "Member" : "Visitor";
+  }
+
+  private recordGameProgress(p: AgentProfile, game: string, win = false, score?: number) {
+    p.game_records ||= {};
+    const r = p.game_records[game] || { plays: 0, wins: 0 };
+    r.plays += 1; if (win) r.wins += 1; if (score !== undefined) r.best_score = Math.max(r.best_score || 0, score);
+    p.game_records[game] = r;
   }
 
   async recordVisit(agentId: string, displayName?: string) {
@@ -498,6 +582,12 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (p.best_streak >= 5) out.add("unstoppable");
     if (p.thought_public) out.add("voice_of_the_lounge");
     if (p.visits >= 10) out.add("regular");
+    if ((p.xp || 0) >= 100) out.add("xp_100");
+    if ((p.xp || 0) >= 500) out.add("xp_500");
+    if ((p.daily_streak || 0) >= 3) out.add("three_day_streak");
+    if ((p.daily_streak || 0) >= 7) out.add("seven_day_streak");
+    if ((p.chat_messages_count || 0) >= 10) out.add("social_regular");
+    if ((p.paid_spend_usd || 0) >= 1) out.add("lounge_supporter");
     return [...out];
   }
 
@@ -718,6 +808,9 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (draw) { p.draws += 1; p.points += 1; p.current_streak = 0; }
     else if (win) { p.wins += 1; p.points += 3; p.current_streak += 1; p.best_streak = Math.max(p.best_streak, p.current_streak); }
     else { p.losses += 1; p.current_streak = 0; }
+    this.applyProgress(p, win ? 30 : draw ? 20 : 12, win ? 3 : draw ? 1 : 0);
+    p.skill_rating = Math.max(100, (p.skill_rating || 1000) + (draw ? 0 : win ? 16 : -12));
+    this.recordGameProgress(p, "multiplayer", win);
     if (thought) { p.last_thought = cleanPublicText(thought); p.thought_public = true; }
     p.achievements = this.computeAchievements(p);
     p.updated_at = nowIso();
@@ -729,6 +822,8 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     p.games_played += 1;
     p.best_score = Math.max(p.best_score || 0, score);
     p.favorite_game = game;
+    this.applyProgress(p, 20 + Math.min(30, Math.floor(score / 20)), Math.max(1, Math.floor(score / 100)));
+    this.recordGameProgress(p, game, false, score);
     p.achievements = this.computeAchievements(p);
     p.updated_at = nowIso();
     await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
@@ -996,7 +1091,12 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   }
 
   async chatMessages(): Promise<ChatMessage[]> {
-    const entries = await this.ctx.storage.list<ChatMessage>({ prefix: CHAT_PREFIX });
+    let entries = await this.ctx.storage.list<ChatMessage>({ prefix: CHAT_PREFIX });
+    if (!entries.size) {
+      const welcome: ChatMessage = { id: crypto.randomUUID(), agent_id: "synapse-host", display_name: "Synapse Host", message: "House host online. The public room is open - try the free welcome challenge or start a solo game.", created_at: nowIso(), house_bot: true };
+      await this.ctx.storage.put(CHAT_PREFIX + welcome.created_at + ":" + welcome.id, welcome);
+      entries = await this.ctx.storage.list<ChatMessage>({ prefix: CHAT_PREFIX });
+    }
     return [...entries.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100);
   }
 
@@ -1010,6 +1110,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const now = Date.now();
     if (last && now - last < 2000) throw new Error("chat_rate_limited");
     const profile = await this.touchProfile(agentId, displayName);
+    profile.chat_messages_count = (profile.chat_messages_count || 0) + 1; this.applyProgress(profile, 2, 0); profile.achievements = this.computeAchievements(profile); await this.ctx.storage.put(PROFILE_PREFIX + profile.agent_id, profile);
     const item: ChatMessage = { id: crypto.randomUUID(), agent_id: agentId, display_name: profile.display_name, message, created_at: nowIso() };
     await this.ctx.storage.put(CHAT_PREFIX + item.created_at + ":" + item.id, item);
     await this.ctx.storage.put(rateKey, now);
@@ -1020,6 +1121,41 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     }
     return item;
   }
+
+  async addFriend(agentIdRaw: unknown, friendIdRaw: unknown) { const agent_id=cleanId(agentIdRaw),friend_id=cleanId(friendIdRaw); if(!agent_id||!friend_id)throw new Error("agent_id_required"); if(agent_id===friend_id)throw new Error("cannot_friend_self"); const p=await this.touchProfile(agent_id); p.friends=[...new Set([...(p.friends||[]),friend_id])].slice(0,100); this.applyProgress(p,3,0); await this.ctx.storage.put(PROFILE_PREFIX+p.agent_id,p); return {friends:p.friends}; }
+  async socialGraph(agentIdRaw: unknown) { const agent_id=cleanId(agentIdRaw); const p=await this.getProfile(agent_id); const matches=await this.history(agent_id); const counts:Record<string,number>={}; for(const m of matches){ const opp=m.game==="chess"?(m.player_white===agent_id?m.player_black:m.player_white):(m.player_a===agent_id?m.player_b:m.player_a); if(opp&&opp!=="synapse-bot")counts[opp]=(counts[opp]||0)+1; } const rivals=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([agent_id,matches])=>({agent_id,matches})); return {agent_id,friends:p.friends||[],rivals,rematch_suggestions:rivals.slice(0,3)}; }
+  async quests(agentIdRaw: unknown) { const agent_id=cleanId(agentIdRaw); const p=await this.getProfile(agent_id); const today=new Date().toISOString().slice(0,10); return {date:today,daily:[{id:"play_one",label:"Complete one game",progress:Math.min(1,p.daily_points_day===today&&p.games_played>0?1:0),target:1},{id:"social",label:"Post 3 public chat messages",progress:Math.min(3,p.chat_messages_count||0),target:3},{id:"earn_xp",label:"Earn 50 XP",progress:Math.min(50,p.xp||0),target:50}],weekly:[{id:"seven_games",label:"Complete 7 games",progress:Math.min(7,p.games_played),target:7},{id:"streak_three",label:"Reach a 3-day activity streak",progress:Math.min(3,p.daily_streak||0),target:3}]}; }
+
+  async checkPass(agentIdRaw: unknown) { const agent_id=cleanId(agentIdRaw); if(!agent_id)return {active:false}; const pass=await this.ctx.storage.get<any>(PASS_PREFIX+agent_id); const active=Boolean(pass && Date.parse(pass.expires_at)>Date.now()); return {active,pass:active?pass:undefined}; }
+  async grantPass(agentIdRaw: unknown, kindRaw: unknown) { const agent_id=cleanId(agentIdRaw); if(!agent_id)throw new Error("agent_id_required"); const kind=String(kindRaw)==="weekly"?"weekly":"daily"; const ms=kind==="weekly"?7*86400000:86400000; const pass={agent_id,kind,starts_at:nowIso(),expires_at:new Date(Date.now()+ms).toISOString(),unlimited_tools:["play_cipher","play_memory_grid","play_logic_vault","play_daily_challenge"]}; await this.ctx.storage.put(PASS_PREFIX+agent_id,pass); return {active:true,pass}; }
+
+  async welcomeChallenge(agentIdRaw: unknown, displayName?: string) {
+    const agentId = cleanId(agentIdRaw); if (!agentId) throw new Error("agent_id_required");
+    if (await this.ctx.storage.get<boolean>(WELCOME_PREFIX + agentId)) throw new Error("welcome_challenge_already_claimed");
+    await this.ctx.storage.put(WELCOME_PREFIX + agentId, true);
+    const p = await this.touchProfile(agentId, displayName); this.applyProgress(p, 15, 1); p.achievements = this.computeAchievements(p); await this.ctx.storage.put(PROFILE_PREFIX + p.agent_id, p);
+    return { claimed: true, agent_id: agentId, challenge: "WELCOME-SIGNAL", prompt: "Decode: TZOBQTF (Caesar shift +1)", hint: "Shift each letter back by one.", reward_xp: 15 };
+  }
+
+  async recordPayment(body: any) {
+    const amount = Number(body.amount_usd || 0); if (!Number.isFinite(amount) || amount <= 0) throw new Error("invalid_amount");
+    const event: PaymentEvent = { id: crypto.randomUUID(), tool: String(body.tool || "unknown").slice(0,80), agent_id: body.agent_id ? cleanId(body.agent_id) : undefined, amount_usd: amount, transaction: body.transaction ? String(body.transaction).slice(0,120) : undefined, payer: body.payer ? String(body.payer).slice(0,120) : undefined, created_at: nowIso() };
+    await this.ctx.storage.put(PAYMENT_PREFIX + event.created_at + ":" + event.id, event);
+    const verified: VerifiedActivity = { id: event.id, agent_id: event.agent_id, tool: event.tool, label: `Verified paid ${event.tool}`, amount_usd: amount, transaction: event.transaction, created_at: event.created_at };
+    await this.ctx.storage.put(VERIFIED_PREFIX + verified.created_at + ":" + verified.id, verified);
+    if (event.agent_id) { const p = await this.touchProfile(event.agent_id); p.paid_calls = (p.paid_calls || 0) + 1; p.paid_spend_usd = Number(((p.paid_spend_usd || 0) + amount).toFixed(6)); this.applyProgress(p, Math.max(5, Math.round(amount * 500)), 0); p.achievements = this.computeAchievements(p); await this.ctx.storage.put(PROFILE_PREFIX+p.agent_id,p); }
+    return { recorded: true, event };
+  }
+
+  async verifiedActivity() { const e = await this.ctx.storage.list<VerifiedActivity>({prefix: VERIFIED_PREFIX}); return [...e.values()].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,100); }
+  async analytics() {
+    const e = [...(await this.ctx.storage.list<PaymentEvent>({prefix: PAYMENT_PREFIX})).values()];
+    const by_tool: Record<string,{calls:number,revenue_usd:number}> = {}; let revenue=0;
+    for (const x of e) { revenue += x.amount_usd; const t=by_tool[x.tool] ||= {calls:0,revenue_usd:0}; t.calls++; t.revenue_usd += x.amount_usd; }
+    for (const t of Object.values(by_tool)) t.revenue_usd = Number(t.revenue_usd.toFixed(6));
+    return { paid_calls:e.length, revenue_usd:Number(revenue.toFixed(6)), by_tool, recent:e.sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,50) };
+  }
+  async dailyLeaderboard(): Promise<AgentProfile[]> { const today=new Date().toISOString().slice(0,10); const entries=await this.ctx.storage.list<AgentProfile>({prefix:PROFILE_PREFIX}); return [...entries.values()].filter(p=>p.daily_points_day===today).sort((a,b)=>(b.daily_points||0)-(a.daily_points||0)||(b.xp||0)-(a.xp||0)).slice(0,100); }
 
   async leaderboard(): Promise<AgentProfile[]> {
     const entries = await this.ctx.storage.list<AgentProfile>({ prefix: PROFILE_PREFIX });
@@ -1065,7 +1201,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const entries = await this.ctx.storage.list<Challenge>({ prefix: CHALLENGE_PREFIX });
     const challenges = [...entries.values()];
     for (const c of challenges) {
-      if (c.status === "pending" && isExpired(c.expires_at)) { c.status = "expired"; await this.ctx.storage.put(CHALLENGE_PREFIX + c.id, c); }
+      if ((c.status === "pending" || c.status === "accepted") && isExpired(c.expires_at)) { c.status = "expired"; await this.ctx.storage.put(CHALLENGE_PREFIX + c.id, c); }
     }
     return challenges
       .filter((c) => !agentId || c.challenger === agentId || c.challenged === agentId)
@@ -1100,7 +1236,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     agentId = cleanId(agentId);
     if (challenge.challenged !== agentId) throw new Error("not_challenged_agent");
     await this.touchProfile(agentId);
-    if (isExpired(challenge.expires_at) && challenge.status === "pending") { challenge.status = "expired"; await this.ctx.storage.put(CHALLENGE_PREFIX + challenge.id, challenge); return { status: "expired", challenge }; }
+    if (isExpired(challenge.expires_at) && (challenge.status === "pending" || challenge.status === "accepted")) { challenge.status = "expired"; await this.ctx.storage.put(CHALLENGE_PREFIX + challenge.id, challenge); return { status: "expired", challenge }; }
     if (challenge.status !== "pending") return { status: challenge.status, challenge };
     challenge.status = accept ? "accepted" : "declined";
     challenge.responded_at = nowIso();
@@ -1137,6 +1273,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const chat_messages = await this.chatMessages();
     const cutoff = Date.now() - 5 * 60 * 1000;
     const active_agents = profiles.filter((p) => Boolean(p.last_seen_at) && Date.parse(p.last_seen_at!) >= cutoff).slice(0, 50);
-    return { profiles, matches, chess_matches, reaction_matches, trivia_matches, drinks, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], reaction_queue: (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [], trivia_queue: (await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY)) || [], challenges, active_agents, chat_messages };
+    const verified_activity = await this.verifiedActivity();
+    return { profiles, matches, chess_matches, reaction_matches, trivia_matches, drinks, verified_activity, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], reaction_queue: (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [], trivia_queue: (await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY)) || [], challenges, active_agents, chat_messages };
   }
 }

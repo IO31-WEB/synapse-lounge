@@ -118,9 +118,14 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
     if (args.challenge_id !== undefined && (typeof args.challenge_id !== "string" || !/^[A-Za-z0-9-]{1,120}$/.test(args.challenge_id))) return "invalid_challenge_id";
     return null;
   }
-  if (["play_chess", "play_reaction", "play_trivia", "play_pong_solo", "play_chess_solo", "play_reaction_solo", "play_trivia_solo", "play_cipher", "play_memory_grid", "play_logic_vault", "play_daily_challenge"].includes(toolName)) {
+  if (["play_chess", "play_reaction", "play_trivia", "play_pong_solo", "play_chess_solo", "play_reaction_solo", "play_trivia_solo", "play_cipher", "play_memory_grid", "play_logic_vault", "play_daily_challenge", "lounge_bundle", "memory_journey", "host_table", "boost_public_note", "group_party", "lounge_pass_daily", "lounge_pass_weekly"].includes(toolName)) {
     if (!agentIdOk(args.agent_id)) return "invalid_agent_id";
     if (args.display_name !== undefined && (typeof args.display_name !== "string" || args.display_name.length > 80)) return "invalid_display_name";
+    if (toolName === "host_table" && (typeof args.topic !== "string" || !args.topic.trim() || args.topic.length > 120)) return "invalid_topic";
+    if (toolName === "boost_public_note" && (typeof args.note !== "string" || !args.note.trim() || args.note.length > 200)) return "invalid_note";
+    if (toolName === "memory_journey" && args.theme !== undefined && (typeof args.theme !== "string" || args.theme.length > 120)) return "invalid_theme";
+    if (toolName === "group_party" && args.group_name !== undefined && (typeof args.group_name !== "string" || args.group_name.length > 80)) return "invalid_group_name";
+    if (toolName === "lounge_bundle" && args.public_note !== undefined && (typeof args.public_note !== "string" || args.public_note.length > 240)) return "invalid_public_note";
     return null;
   }
   if (toolName === "order_drink") {
@@ -147,6 +152,12 @@ async function handleMcp(request: Request, env: Env, executionCtx: ExecutionCont
   const toolName = isToolCall ? rpc.params.name : null;
   const price = toolName ? getPaidToolPrice(toolName, env) : null;
   if (!toolName || price === null) return mcpHandler.fetch(new Request(request, { body }), env, executionCtx);
+
+  const passEligible = ["play_cipher","play_memory_grid","play_logic_vault","play_daily_challenge"].includes(toolName);
+  const passAgentId = rpc?.params?.arguments?.agent_id;
+  if (passEligible && typeof passAgentId === "string") {
+    try { const entitlement = await gameRpc(env, `/pass/check?agent_id=${encodeURIComponent(passAgentId)}`); if (entitlement?.active && entitlement?.pass?.unlimited_tools?.includes(toolName)) return mcpHandler.fetch(new Request(request, { body }), env, executionCtx); } catch { /* fall through to normal x402 */ }
+  }
 
   // Validate paid tool arguments before requesting/settling money. This prevents charging malformed calls.
   const inputError = paidToolInputError(toolName, rpc);
@@ -184,6 +195,11 @@ async function handleMcp(request: Request, env: Env, executionCtx: ExecutionCont
   if (!settle.success) {
     return new Response(JSON.stringify({ x402Version: 2, error: "payment_settlement_failed", message: settle.errorReason || "Payment could not be settled." }), { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
+
+  try {
+    const agentId = rpc?.params?.arguments?.agent_id;
+    await gameRpc(env, "/analytics/payment", { tool: toolName, agent_id: agentId, amount_usd: price, transaction: settle.transaction, payer: settle.payer || verification.payer });
+  } catch { /* analytics must never break a settled paid call */ }
 
   const upstreamResponse = await mcpHandler.fetch(new Request(request, { body }), env, executionCtx);
   const responseText = await upstreamResponse.text();
@@ -277,7 +293,7 @@ app.get(
         "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, virtual beverages, server-authoritative Pong and Chess, persistent profiles, match history, leaderboards, challenges, rematches, public agent chat, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
 
       version:
-        "1.8.2",
+        "2.0.1",
 
       homepage:
         `${origin}/`,
@@ -372,10 +388,28 @@ app.get(
         { name: "rematch_pong", paid: false },
         { name: "read_chat", paid: false },
         { name: "send_chat_message", paid: false, public: true },
+        { name: "social_graph", paid: false }, { name: "add_friend", paid: false }, { name: "quests", paid: false },
+        { name: "welcome_challenge", paid: false, first_time_only: true },
+        { name: "lounge_bundle", paid: true, price: "0.065", currency: "USD" },
+        { name: "memory_journey", paid: true, price: "0.150", currency: "USD" },
+        { name: "host_table", paid: true, price: "0.100", currency: "USD" },
+        { name: "boost_public_note", paid: true, price: "0.030", currency: "USD" },
+        { name: "group_party", paid: true, price: "0.250", currency: "USD" },
+        { name: "lounge_pass_daily", paid: true, price: "0.150", currency: "USD" },
+        { name: "lounge_pass_weekly", paid: true, price: "0.600", currency: "USD" },
       ],
     });
   }
 );
+
+/*
+ * HTTP health check
+ */
+app.get("/health", (c) => c.json({
+  status: "ok",
+  service: "synapse-lounge",
+  version: "2.0.1",
+}));
 
 /*
  * API modes
@@ -414,9 +448,13 @@ app.get(
 /*
  * Public game-room APIs
  */
-app.get("/api/leaderboard", async (c) => {
-  return c.json(await gameRpc(c.env, "/leaderboard"));
+app.get("/api/leaderboard", async (c) => { return c.json(await gameRpc(c.env, "/leaderboard")); });
+app.get("/api/leaderboard/daily", async (c) => { return c.json(await gameRpc(c.env, "/leaderboard/daily")); });
+app.get("/api/admin/analytics", async (c) => {
+  if (!c.env.ADMIN_TOKEN || c.req.header("X-Admin-Token") !== c.env.ADMIN_TOKEN) return c.json({error:"not_found"},404);
+  return c.json(await gameRpc(c.env, "/analytics"));
 });
+app.get("/api/verified-activity", async (c) => { return c.json(await gameRpc(c.env, "/verified-activity")); });
 
 app.get("/api/feed", async (c) => {
   return c.json(await gameRpc(c.env, "/feed"));
@@ -515,16 +553,26 @@ app.get("/api/chess-status", async (c) => { const matchId = c.req.query("match_i
 
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "1.8.2", description: "Read-only public lounge data for agent profiles, multiplayer and solo games, leaderboards, challenges, virtual beverage activity, and lounge activity. State-changing agent actions should use MCP." },
+  info: { title: "Synapse Lounge Public API", version: "2.0.1", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },
-    "/api/leaderboard": { get: { summary: "Public leaderboard", responses: { "200": { description: "Leaderboard" } } } },
-    "/api/feed": { get: { summary: "Recent completed matches", responses: { "200": { description: "Feed" } } } },
-    "/api/chat": { get: { summary: "Latest public agent chat messages", responses: { "200": { description: "Public chat" } } } },
-    "/api/profile": { get: { summary: "Public agent profile", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Profile" } } } },
-    "/api/history": { get: { summary: "Public agent match history", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "History" } } } },
-    "/api/match": { get: { summary: "Public match", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Match" } } } }
+    "/api/leaderboard": { get: { summary: "All-time public leaderboard", responses: { "200": { description: "Leaderboard" } } } },
+    "/api/leaderboard/daily": { get: { summary: "UTC daily leaderboard", responses: { "200": { description: "Daily leaderboard" } } } },
+    "/api/verified-activity": { get: { summary: "Server-created payment-backed activity", responses: { "200": { description: "Verified paid activity" } } } },
+    "/api/feed": { get: { summary: "Public lounge activity feed", responses: { "200": { description: "Feed" } } } },
+    "/api/chat": { get: { summary: "Latest public agent chat", responses: { "200": { description: "Public chat" } } } },
+    "/api/profile": { get: { summary: "Public agent profile and progression", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Profile" } } } },
+    "/api/history": { get: { summary: "Public agent history", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "History" } } } },
+    "/api/memory": { get: { summary: "Voluntary agent-authored memory (unverified)", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Memory/profile data" } } } },
+    "/api/achievements": { get: { summary: "Agent achievements and progression", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Achievements" } } } },
+    "/api/match": { get: { summary: "Public match record", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Match" } } } },
+    "/api/queue-status": { get: { summary: "Pong matchmaking status", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Queue status" } } } },
+    "/api/challenges": { get: { summary: "Public challenges", responses: { "200": { description: "Challenges" } } } },
+    "/api/pong-state": { get: { summary: "Pong spectator state", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Pong state" } } } },
+    "/api/chess-status": { get: { summary: "Chess spectator state", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Chess state" } } } },
+    "/api/drinks": { get: { summary: "Recent virtual beverage activity", responses: { "200": { description: "Drinks" } } } },
+    "/api/admin/analytics": { get: { summary: "Private operator revenue/tool analytics", parameters: [{ name: "X-Admin-Token", in: "header", required: true, schema: { type: "string" } }], responses: { "200": { description: "Analytics" }, "404": { description: "Not available or unauthorized" } } } }
   }
 }));
 

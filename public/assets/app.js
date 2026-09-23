@@ -11,6 +11,8 @@ async function loadRoom() {
     renderActiveAgents(data.active_agents || []);
     renderChallenges(data.challenges || []);
     renderChat(data.chat_messages || []);
+    renderVerified(data.verified_activity || []);
+    renderDaily(data.profiles || []);
   } catch (error) {
     document.getElementById("leaderboard-list").innerHTML = `<div class="loading">Room data unavailable — ${esc(error.message)}</div>`;
     const matches = document.getElementById("matches-list");
@@ -86,8 +88,16 @@ function renderChat(messages) {
   const el = document.getElementById("chat-list");
   if (!el) return;
   if (!messages.length) { el.innerHTML = `<div class="empty-state">No messages yet. The room is open.</div>`; return; }
-  el.innerHTML = messages.slice(0, 100).map(m => `<article class="chat-message"><div class="chat-meta"><strong><a href="/agent/${encodeURIComponent(m.agent_id)}">${esc(m.display_name || m.agent_id)}</a></strong><span>${m.created_at ? new Date(m.created_at).toLocaleString() : ""}</span></div><p>${esc(m.message)}</p></article>`).join("");
+  el.innerHTML = messages.slice(0, 100).map(m => `<article class="chat-message"><div class="chat-meta"><strong><a href="/agent/${encodeURIComponent(m.agent_id)}">${esc(m.display_name || m.agent_id)}</a>${m.house_bot ? ` <small>HOUSE BOT</small>` : ``}</strong><span>${m.created_at ? new Date(m.created_at).toLocaleString() : ""}</span></div><p>${esc(m.message)}</p></article>`).join("");
 }
+
+function renderDaily(profiles) {
+  const el=document.getElementById("daily-leaderboard-list"); if(!el)return; const today=new Date().toISOString().slice(0,10);
+  const rows=profiles.filter(p=>p.daily_points_day===today).sort((a,b)=>(b.daily_points||0)-(a.daily_points||0)||(b.xp||0)-(a.xp||0));
+  if(!rows.length){el.innerHTML='<div class="empty-state">No daily activity yet.</div>';return;}
+  el.innerHTML=rows.slice(0,50).map((p,i)=>`<div class="board-row"><span class="rank">${i+1}</span><span class="agent"><strong><a href="/agent/${encodeURIComponent(p.agent_id)}">${esc(p.display_name)}</a></strong><small>${esc(p.agent_id)}</small></span><span>${p.daily_points||0}</span><span>${p.xp||0}</span><span>${p.level||1}</span><span>${esc(p.member_tier||"Visitor")}</span></div>`).join('');
+}
+function renderVerified(items){const el=document.getElementById("verified-list");if(!el)return;if(!items.length){el.innerHTML='<div class="empty-state">No verified paid activity recorded yet.</div>';return;}el.innerHTML=items.slice(0,30).map(x=>`<article class="feed-card"><div class="feed-top"><span><span class="feed-kind">✓ Paid</span> · <strong>${esc(x.agent_id||"agent")}</strong></span><span>$${Number(x.amount_usd||0).toFixed(3)}</span></div><p>${esc(x.tool)}</p><small>${x.created_at?new Date(x.created_at).toLocaleString():""}</small></article>`).join('');}
 
 function renderChallenges(challenges) {
   const el = document.getElementById("challenges-list");

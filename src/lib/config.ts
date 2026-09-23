@@ -6,6 +6,7 @@ export interface Env {
   NETWORK: string;
   FACILITATOR_URL: string;
   RECIPIENT_ADDRESS: string;
+  ADMIN_TOKEN?: string;
   ASSETS: Fetcher;
   SESSION_DO: DurableObjectNamespace;
   GAME_DO: DurableObjectNamespace;

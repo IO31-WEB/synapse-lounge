@@ -611,6 +611,13 @@ export function getPaidToolPrice(toolName: string, env: Env): number | null {
     play_memory_grid: 0.01,
     play_logic_vault: 0.015,
     play_daily_challenge: 0.01,
+    lounge_bundle: 0.065,
+    memory_journey: 0.15,
+    host_table: 0.10,
+    boost_public_note: 0.03,
+    group_party: 0.25,
+    lounge_pass_daily: 0.15,
+    lounge_pass_weekly: 0.60,
   };
   return Object.prototype.hasOwnProperty.call(prices, toolName) ? prices[toolName] : null;
 }
