@@ -211,17 +211,24 @@ async function handleMcp(request: Request, env: Env, executionCtx: ExecutionCont
   return response;
 }
 
-/*
- * MCP
- */
 app.all(
   "/mcp",
   async (c) => {
+    if (c.req.method === "GET") {
+      return c.json({
+        service: "Synapse Lounge MCP",
+        status: "online",
+        version: "2.0.1",
+        message: "This is an MCP protocol endpoint. Connect using an MCP client.",
+        protocol: "2025-06-18",
+        documentation: `${new URL(c.req.url).origin}/for-agents`,
+      });
+    }
+
     return handleMcp(
       c.req.raw,
       c.env,
-      c.executionCtx as unknown as
-        ExecutionContext
+      c.executionCtx as unknown as ExecutionContext
     );
   }
 );
