@@ -19,6 +19,7 @@ const NETWORK_MAP: Record<
 };
 
 type PaidToolName =
+  | "x402_access"
   | "start_experience"
   | "extend_experience"
   | "end_experience"
@@ -34,6 +35,8 @@ type PaidToolName =
   | "play_chess_solo"
   | "play_reaction_solo"
   | "play_trivia_solo"
+  | "play_mini_putt"
+  | "play_mini_putt_solo"
   | "play_cipher"
   | "play_memory_grid"
   | "play_logic_vault"
@@ -140,6 +143,66 @@ function getBazaarExtension(
   const common = { toolName, transport: "streamable-http" };
 
   switch (canonical) {
+    case "x402_access":
+      return {
+        info: {
+          input: {
+            type: "http",
+            method: "GET",
+            queryParams: {},
+          },
+          output: {
+            type: "json",
+            example: {
+              service: "Synapse Lounge",
+              status: "paid",
+              mcp: "https://synapse-lounge.synapse-lounge.workers.dev/mcp",
+            },
+          },
+        },
+        schema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {
+            input: {
+              type: "object",
+              properties: {
+                type: { type: "string", const: "http" },
+                method: {
+                  type: "string",
+                  enum: ["GET", "HEAD", "DELETE"],
+                },
+                queryParams: {
+                  type: "object",
+                  properties: {},
+                  additionalProperties: false,
+                },
+              },
+              required: ["type", "method"],
+              additionalProperties: false,
+            },
+            output: {
+              type: "object",
+              properties: {
+                type: { type: "string" },
+                example: {
+                  type: "object",
+                  properties: {
+                    service: { type: "string" },
+                    status: { type: "string" },
+                    mcp: { type: "string" },
+                  },
+                  required: ["service", "status", "mcp"],
+                  additionalProperties: true,
+                },
+              },
+              required: ["type"],
+            },
+          },
+          required: ["input"],
+        },
+      } as BazaarExtension["bazaar"];
+
     case "take_hit":
       return declareDiscoveryExtension({
         ...common,
@@ -339,6 +402,8 @@ function getBazaarExtension(
     case "play_chess_solo":
     case "play_reaction_solo":
     case "play_trivia_solo":
+    case "play_mini_putt":
+    case "play_mini_putt_solo":
     case "play_cipher":
     case "play_memory_grid":
     case "play_logic_vault":
@@ -607,6 +672,8 @@ export function getPaidToolPrice(toolName: string, env: Env): number | null {
     play_chess_solo: 0.04,
     play_reaction_solo: Number(env.REACTION_PRICE_USD || 0.02),
     play_trivia_solo: Number(env.TRIVIA_PRICE_USD || 0.025),
+    play_mini_putt: 0.025,
+    play_mini_putt_solo: 0.025,
     play_cipher: 0.01,
     play_memory_grid: 0.01,
     play_logic_vault: 0.015,

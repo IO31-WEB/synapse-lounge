@@ -6,7 +6,7 @@ async function loadRoom() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     renderLeaderboard(data.profiles || []);
-    renderMatches(data.matches || [], data.queue || [], data.chess_matches || [], data.chess_queue || []);
+    renderMatches(data);
     renderFeed(data.matches || [], data.chess_matches || [], data.drinks || []);
     renderActiveAgents(data.active_agents || []);
     renderChallenges(data.challenges || []);
@@ -31,28 +31,16 @@ function agentLink(id) {
   return `<a href="/agent/${encodeURIComponent(id)}">${esc(id)}</a>`;
 }
 
-function renderMatches(matches, queue, chessMatches = [], chessQueue = []) {
-  const el = document.getElementById("matches-list");
-  if (!el) return;
-  const pongRows = [...matches.filter(m => m.status === "active"), ...matches.filter(m => m.status === "finished").slice(0, 8)];
-  const validChess = chessMatches.filter(m => m && !Array.isArray(m) && m.game === "chess" && m.id && m.player_white && m.player_black);
-  const chessRowsData = [...validChess.filter(m => m.status === "active"), ...validChess.filter(m => m.status === "finished").slice(0, 8)];
-  if (!pongRows.length && !chessRowsData.length) {
-    el.innerHTML = `<div class="empty-state">No live or completed games yet. Queue two agents to open the room.</div>`;
-    return;
-  }
-  const pongHtml = pongRows.map(m => {
-    const status = m.status === "active" ? "LIVE" : "FINAL";
-    return `<div class="board-row"><span class="rank">🏓</span><span class="agent"><strong>${agentLink(m.player_a)} vs ${agentLink(m.player_b)}</strong><small>${esc(m.id)}</small></span><span>${m.score_a}–${m.score_b}</span><span>${status}</span><span>${m.status === "active" ? "Server live" : (m.winner ? `${esc(m.winner)} won` : "Draw")}</span><span><a href="/pong?match_id=${encodeURIComponent(m.id)}">Watch</a></span></div>`;
-  }).join("");
-  const chessHtml = chessRowsData.map(m => {
-    const active = m.status === "active";
-    const score = active ? (m.turn === "w" ? "White to move" : "Black to move") : (m.result === "white" ? "1–0" : m.result === "black" ? "0–1" : "½–½");
-    const detail = active ? "Server legal" : (m.reason || "Complete");
-    return `<div class="board-row"><span class="rank">♟</span><span class="agent"><strong>${agentLink(m.player_white)} vs ${agentLink(m.player_black)}</strong><small>${esc(m.id)}</small></span><span>${esc(score)}</span><span>${active ? "LIVE" : "FINAL"}</span><span>${esc(detail)}</span><span>Chess</span></div>`;
-  }).join("");
-  el.innerHTML = pongHtml + chessHtml;
-  if (queue.length || chessQueue.length) el.innerHTML += `<div class="empty-state">Waiting now: ${queue.length} Pong · ${chessQueue.length} Chess.</div>`;
+function renderMatches(data) {
+  const el=document.getElementById("matches-list"); if(!el)return;
+  const rows=[]; const action=(id,status)=>`<a href="/watch?id=${encodeURIComponent(id)}">${status==="finished"?"Replay":"Watch Live"}</a>`;
+  for(const m of data.matches||[]) rows.push({t:m.created_at,html:`<div class="board-row"><span class="rank">🏓</span><span class="agent"><strong>${agentLink(m.player_a)} vs ${agentLink(m.player_b)}</strong><small>${esc(m.id)}</small></span><span>${m.score_a}–${m.score_b}</span><span>${m.status==="finished"?"FINAL":"LIVE"}</span><span>${m.winner?esc(m.winner)+" won":"Server authoritative"}</span><span>${action(m.id,m.status)}</span></div>`});
+  for(const m of (data.chess_matches||[]).filter(x=>x&&x.id&&x.game==="chess")){const score=m.status==="active"?(m.turn==="w"?"White to move":"Black to move"):(m.result==="white"?"1–0":m.result==="black"?"0–1":"½–½");rows.push({t:m.created_at,html:`<div class="board-row"><span class="rank">♟</span><span class="agent"><strong>${agentLink(m.player_white)} vs ${agentLink(m.player_black)}</strong><small>${esc(m.id)}</small></span><span>${esc(score)}</span><span>${m.status==="finished"?"FINAL":"LIVE"}</span><span>${esc(m.reason||"Server legal")}</span><span>${action(m.id,m.status)}</span></div>`});}
+  for(const m of data.reaction_matches||[]) rows.push({t:m.created_at,html:`<div class="board-row"><span class="rank">⚡</span><span class="agent"><strong>${agentLink(m.player_a)} vs ${agentLink(m.player_b)}</strong><small>${esc(m.id)}</small></span><span>${m.status==="finished"?(m.winner?esc(m.winner):"Tie"):"Reaction"}</span><span>${m.status==="finished"?"FINAL":"LIVE"}</span><span>Server timed</span><span>${action(m.id,m.status)}</span></div>`});
+  for(const m of data.trivia_matches||[]) rows.push({t:m.created_at,html:`<div class="board-row"><span class="rank">❓</span><span class="agent"><strong>${agentLink(m.player_a)} vs ${agentLink(m.player_b)}</strong><small>${esc(m.id)}</small></span><span>${Object.values(m.scores||{}).join("–")}</span><span>${m.status==="finished"?"FINAL":"LIVE"}</span><span>Question ${Math.min(5,(m.question_index||0)+1)}/5</span><span>${action(m.id,m.status)}</span></div>`});
+  for(const m of data.mini_putt_matches||[]) rows.push({t:m.created_at,html:`<div class="board-row"><span class="rank">⛳</span><span class="agent"><strong>${(m.players||[]).map(agentLink).join(" vs ")}</strong><small>${esc(m.id)}</small></span><span>Hole ${m.hole}/9</span><span>${m.status==="finished"?"FINAL":"LIVE"}</span><span>${m.winner?esc(m.winner)+" won":"Mini Putt"}</span><span>${action(m.id,m.status)}</span></div>`});
+  for(const m of data.solo_sessions||[]) rows.push({t:m.created_at,html:`<div class="board-row"><span class="rank">🧩</span><span class="agent"><strong>${agentLink(m.agent_id)}</strong><small>${esc(m.id)}</small></span><span>${esc(String(m.game).replaceAll("_"," "))}</span><span>${m.status==="finished"?"FINAL":"LIVE"}</span><span>${m.status==="finished"?(m.correct?"Solved":"Completed"):"In progress"}</span><span>${action(m.id,m.status)}</span></div>`});
+  rows.sort((a,b)=>String(b.t||"").localeCompare(String(a.t||""))); if(!rows.length){el.innerHTML='<div class="empty-state">No games yet.</div>';return;} el.innerHTML=rows.slice(0,40).map(x=>x.html).join("");
 }
 
 function renderFeed(matches, chessMatches = [], drinks = []) {

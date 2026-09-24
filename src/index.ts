@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { createCdpFacilitatorClient } from "@coinbase/cdp-sdk/x402";
+import { generateKeyPair, exportJWK, importJWK, SignJWT } from "jose";
 
 import { SynapseLoungeMCP } from "./mcp/server";
 import type { Env } from "./lib/config";
@@ -118,7 +120,7 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
     if (args.challenge_id !== undefined && (typeof args.challenge_id !== "string" || !/^[A-Za-z0-9-]{1,120}$/.test(args.challenge_id))) return "invalid_challenge_id";
     return null;
   }
-  if (["play_chess", "play_reaction", "play_trivia", "play_pong_solo", "play_chess_solo", "play_reaction_solo", "play_trivia_solo", "play_cipher", "play_memory_grid", "play_logic_vault", "play_daily_challenge", "lounge_bundle", "memory_journey", "host_table", "boost_public_note", "group_party", "lounge_pass_daily", "lounge_pass_weekly"].includes(toolName)) {
+  if (["play_chess", "play_reaction", "play_trivia", "play_mini_putt", "play_mini_putt_solo", "play_pong_solo", "play_chess_solo", "play_reaction_solo", "play_trivia_solo", "play_cipher", "play_memory_grid", "play_logic_vault", "play_daily_challenge", "lounge_bundle", "memory_journey", "host_table", "boost_public_note", "group_party", "lounge_pass_daily", "lounge_pass_weekly"].includes(toolName)) {
     if (!agentIdOk(args.agent_id)) return "invalid_agent_id";
     if (args.display_name !== undefined && (typeof args.display_name !== "string" || args.display_name.length > 80)) return "invalid_display_name";
     if (toolName === "host_table" && (typeof args.topic !== "string" || !args.topic.trim() || args.topic.length > 120)) return "invalid_topic";
@@ -253,6 +255,10 @@ app.all(
  *
  * Human-readable service homepage.
  */
+app.get("/watch", async (c) => {
+  const request = new Request(new URL("/watch.html" + new URL(c.req.url).search, c.req.url), c.req.raw);
+  return c.env.ASSETS.fetch(request);
+});
 app.get("/pong", async (c) => {
   const request = new Request(new URL("/pong.html", c.req.url), c.req.raw);
   return c.env.ASSETS.fetch(request);
@@ -370,6 +376,8 @@ app.get(
         { name: "play_reaction_solo", paid: true, price: "0.020", currency: "USD", mode: "solo" },
         { name: "play_trivia", paid: true, price: "0.025", currency: "USD", mode: "multiplayer" },
         { name: "play_trivia_solo", paid: true, price: "0.025", currency: "USD", mode: "solo" },
+        { name: "play_mini_putt", paid: true, price: "0.025", currency: "USD", mode: "multiplayer" },
+        { name: "play_mini_putt_solo", paid: true, price: "0.025", currency: "USD", mode: "solo" },
         { name: "play_cipher", paid: true, price: "0.010", currency: "USD", mode: "solo" },
         { name: "play_memory_grid", paid: true, price: "0.010", currency: "USD", mode: "solo" },
         { name: "play_logic_vault", paid: true, price: "0.015", currency: "USD", mode: "solo" },
@@ -408,6 +416,169 @@ app.get(
     });
   }
 );
+
+/*
+ * Cloudflare/esbuild workaround for the CDP SDK's lazy jose EdDSA initialization.
+ * Prime jose's EdDSA key path before createCdpFacilitatorClient() invokes the
+ * SDK's internal JWT builder. No network request or payment occurs here.
+ */
+async function primeCdpEdDsa(secret: string): Promise<void> {
+  const decoded = Buffer.from(secret, "base64");
+
+  if (decoded.length !== 64) {
+    throw new Error("CDP_API_KEY_SECRET must decode to exactly 64 bytes");
+  }
+
+  const seed = decoded.subarray(0, 32);
+  const publicKey = decoded.subarray(32);
+
+  await importJWK(
+    {
+      kty: "OKP",
+      crv: "Ed25519",
+      d: seed.toString("base64url"),
+      x: publicKey.toString("base64url"),
+    },
+    "EdDSA"
+  );
+}
+
+/*
+ * Direct x402 discovery / delivery-verification endpoint.
+ *
+ * This intentionally sits outside MCP so x402 directories can probe a normal
+ * HTTP resource and receive a canonical x402 v2 402 challenge. A successful
+ * payment returns a small service-access receipt; it does not create a game or
+ * mutate an agent profile.
+ */
+app.all("/api/x402", async (c) => {
+  const price = 0.01;
+  const resourceUrl = `${new URL(c.req.url).origin}/api/x402`;
+  const requirements = buildPaymentRequirements(
+    c.env,
+    resourceUrl,
+    "Synapse Lounge x402 access and service manifest",
+    price
+  );
+  const resource: ResourceInfo = {
+    url: resourceUrl,
+    description: "Synapse Lounge x402 access and service manifest",
+    mimeType: "application/json",
+    serviceName: "Synapse Lounge",
+    tags: ["x402", "mcp", "ai-agents", "games", "social"],
+    iconUrl: `${new URL(c.req.url).origin}/favicon.ico`,
+  };
+
+  const paymentHeader = getPaymentHeader(c.req.raw);
+  if (!paymentHeader) {
+    const paymentRequired = buildPaymentRequired(requirements, resource, "x402_access");
+    const json = JSON.stringify(paymentRequired);
+    return new Response(json, {
+      status: 402,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        "PAYMENT-REQUIRED": encodeBase64Utf8(json),
+      },
+    });
+  }
+
+  let paymentPayload: PaymentPayload | null = null;
+  try {
+    paymentPayload = JSON.parse(decodeBase64Utf8(paymentHeader));
+  } catch {
+    return c.json({ x402Version: 2, error: "invalid_payment", message: "PAYMENT-SIGNATURE header is not valid base64 JSON." }, 402);
+  }
+  if (!paymentPayload || paymentPayload.x402Version !== 2 || !paymentPayload.accepted || !paymentPayload.payload) {
+    return c.json({ x402Version: 2, error: "invalid_payment", message: "PAYMENT-SIGNATURE does not contain a valid x402 v2 payment payload." }, 402);
+  }
+
+  try {
+    const runtimeCrypto = (globalThis as unknown as { crypto?: Crypto }).crypto;
+
+    console.log("CRYPTO DEBUG", {
+      cryptoType: typeof runtimeCrypto,
+      getRandomValuesType: typeof runtimeCrypto?.getRandomValues,
+      randomUUIDType: typeof runtimeCrypto?.randomUUID,
+    });
+
+    await primeCdpEdDsa(c.env.CDP_API_KEY_SECRET);
+
+    console.log("CDP DEBUG: EdDSA initialized");
+
+    const cdpFacilitator = createCdpFacilitatorClient({
+      apiKeyId: c.env.CDP_API_KEY_ID,
+      apiKeySecret: c.env.CDP_API_KEY_SECRET,
+    });
+
+    console.log("CDP DEBUG: client created");
+
+    const verification = await cdpFacilitator.verify(
+      paymentPayload as any,
+      requirements as any
+    );
+
+    console.log("CDP DEBUG: verification completed", {
+      isValid: verification.isValid,
+      invalidReason: verification.invalidReason,
+    });
+
+    if (!verification.isValid) {
+      return c.json({ x402Version: 2, error: "payment_verification_failed", message: verification.invalidReason || "Payment could not be verified." }, 402);
+    }
+
+    const settle = await cdpFacilitator.settle(
+      paymentPayload as any,
+      requirements as any
+    );
+
+    console.log("CDP DEBUG: settlement completed", {
+      success: settle.success,
+      errorReason: settle.errorReason,
+      transaction: settle.transaction,
+    });
+
+    if (!settle.success) {
+      return c.json({ x402Version: 2, error: "payment_settlement_failed", message: settle.errorReason || "Payment could not be settled." }, 402);
+    }
+
+    const response = c.json({
+      service: "Synapse Lounge",
+      version: "2.0.1",
+      paid: true,
+      price_usd: price,
+      currency: "USDC",
+      network: settle.network || "eip155:8453",
+      mcp: `${new URL(c.req.url).origin}/mcp`,
+      documentation: `${new URL(c.req.url).origin}/for-agents`,
+      message: "x402 access verified. Connect to the MCP endpoint for Synapse Lounge tools, games, social features, and paid experiences.",
+    });
+    response.headers.set("Cache-Control", "no-store");
+    if (settle.transaction) {
+      response.headers.set("PAYMENT-RESPONSE", encodeBase64Utf8(JSON.stringify({
+        success: true,
+        transaction: settle.transaction,
+        network: settle.network || "eip155:8453",
+        payer: settle.payer || verification.payer,
+      })));
+    }
+    return response;
+  } catch (error) {
+    console.error("X402 FULL ERROR:", error);
+    console.error(
+      "X402 STACK:",
+      error instanceof Error ? error.stack : String(error)
+    );
+
+    return c.json(
+      {
+        error: "x402_internal_error",
+        message: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
 
 /*
  * HTTP health check
@@ -471,6 +642,8 @@ app.get("/api/chat", async (c) => {
   return c.json(await gameRpc(c.env, "/chat"));
 });
 
+app.get("/api/replay", async (c) => { const id=c.req.query("id"); if(!id)return c.json({error:"id_required"},400); return c.json(await gameRpc(c.env, `/replay?id=${encodeURIComponent(id)}`)); });
+app.get("/api/mini-putt-status", async (c) => { const id=c.req.query("match_id"); if(!id)return c.json({error:"match_id_required"},400); return c.json(await gameRpc(c.env, `/mini-putt/status?match_id=${encodeURIComponent(id)}`)); });
 app.get("/api/pong-state", async (c) => {
   const matchId = c.req.query("match_id");
   if (!matchId) return c.json({ error: "match_id_required" }, 400);

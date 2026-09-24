@@ -1,7 +1,9 @@
 name = "synapse-lounge"
 main = "src/index.ts"
-compatibility_date = "2025-03-01"
+compatibility_date = "2026-09-24"
 compatibility_flags = ["nodejs_compat"]
+[alias]
+uncrypto = "./src/uncrypto-worker.ts"
 
 # Assets for the landing page
 [assets]

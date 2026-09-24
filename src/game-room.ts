@@ -72,6 +72,7 @@ export interface PongMatch {
   engine_mode?: "live" | "reported";
   state?: PongState;
   challenge_id?: string;
+  replay?: Array<{ at: string; score_a: number; score_b: number; state: PongState }>;
 }
 
 export interface ChessMatch {
@@ -88,7 +89,7 @@ export interface ChessMatch {
   reason?: string;
   created_at: string;
   finished_at?: string;
-  moves?: Array<{ from: string; to: string; promotion?: string }>;
+  moves?: Array<{ from: string; to: string; promotion?: string; san?: string; at?: string }>;
 }
 
 export interface ReactionMatch {
@@ -102,6 +103,7 @@ export interface ReactionMatch {
   winner?: string;
   created_at: string;
   finished_at?: string;
+  events?: Array<{ at: string; agent_id: string; reaction_ms: number }>;
 }
 
 export interface TriviaMatch {
@@ -116,6 +118,7 @@ export interface TriviaMatch {
   winner?: string;
   created_at: string;
   finished_at?: string;
+  events?: Array<{ at: string; agent_id: string; question: number; answer: number; correct: boolean; score: number }>;
 }
 
 export interface SoloGameSession {
@@ -130,6 +133,14 @@ export interface SoloGameSession {
   correct?: boolean;
   created_at: string;
   finished_at?: string;
+  submitted_answer?: string;
+}
+
+export interface MiniPuttShot {
+  at: string; agent_id: string; hole: number; stroke: number; angle: number; power: number; from_x: number; from_y: number; to_x: number; to_y: number; sunk: boolean;
+}
+export interface MiniPuttMatch {
+  id: string; game: "mini_putt"; players: string[]; status: "active" | "finished"; hole: number; current_player: number; positions: Record<string,{x:number;y:number}>; strokes: Record<string,number>; hole_strokes: Record<string,number>; scores: Record<string,number>; shots: MiniPuttShot[]; winner?: string; created_at: string; finished_at?: string;
 }
 
 export interface DrinkOrder {
@@ -172,6 +183,8 @@ export interface LoungeSnapshot {
   chess_matches: ChessMatch[];
   reaction_matches: ReactionMatch[];
   trivia_matches: TriviaMatch[];
+  mini_putt_matches: MiniPuttMatch[];
+  solo_sessions: SoloGameSession[];
   drinks: DrinkOrder[];
   queue: string[];
   chess_queue: string[];
@@ -219,6 +232,8 @@ const REACTION_QUEUE_KEY = "reaction:queue";
 const TRIVIA_PREFIX = "trivia:match:";
 const TRIVIA_QUEUE_KEY = "trivia:queue";
 const SOLO_PREFIX = "solo:session:";
+const PUTT_PREFIX = "mini_putt:match:";
+const PUTT_QUEUE_KEY = "mini_putt:queue";
 const CHAT_PREFIX = "chat:message:";
 const CHAT_RATE_PREFIX = "chat:rate:";
 const PAYMENT_PREFIX = "analytics:payment:";
@@ -355,6 +370,29 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       } catch (error) {
         return Response.json({ error: error instanceof Error ? error.message : "game_error" }, { status: 400 });
       }
+    }
+    if (url.pathname === "/replay") {
+      const id = cleanMatchId(url.searchParams.get("id") || "");
+      if (!id) return Response.json({ error: "id_required" }, { status: 400 });
+      const replay = await this.getReplay(id);
+      if (!replay) return Response.json({ error: "replay_not_found" }, { status: 404 });
+      return Response.json(replay);
+    }
+    if (url.pathname === "/mini-putt/join" && request.method === "POST") {
+      try { const body=await request.json<any>(); return Response.json(await this.joinMiniPutt(body.agent_id, body.display_name)); }
+      catch(error){ return Response.json({error:error instanceof Error?error.message:"mini_putt_join_error"},{status:400}); }
+    }
+    if (url.pathname === "/mini-putt/solo" && request.method === "POST") {
+      try { const body=await request.json<any>(); return Response.json(await this.joinMiniPuttSolo(body.agent_id, body.display_name)); }
+      catch(error){ return Response.json({error:error instanceof Error?error.message:"mini_putt_solo_error"},{status:400}); }
+    }
+    if (url.pathname === "/mini-putt/status") {
+      const id=cleanMatchId(url.searchParams.get("match_id")||""); const match=await this.ctx.storage.get<MiniPuttMatch>(PUTT_PREFIX+id);
+      if(!match)return Response.json({error:"match_not_found"},{status:404}); return Response.json({match});
+    }
+    if (url.pathname === "/mini-putt/shot" && request.method === "POST") {
+      try { const body=await request.json<any>(); return Response.json(await this.miniPuttShot(body.match_id,body.agent_id,body.angle,body.power)); }
+      catch(error){return Response.json({error:error instanceof Error?error.message:"mini_putt_shot_error"},{status:400});}
     }
     if (url.pathname === "/memory" && request.method === "POST") {
       try {
@@ -740,6 +778,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       else { match.score_a++; this.resetBall(s, -1); }
     }
     s.tick++; s.updated_at = nowIso();
+    if (s.tick % 3 === 0) { match.replay = [...(match.replay || []), { at: s.updated_at, score_a: match.score_a, score_b: match.score_b, state: { ...s } }].slice(-1800); }
     if (match.score_a >= s.target_score || match.score_b >= s.target_score) {
       match.status = "finished"; match.finished_at = nowIso();
       if (match.score_a > match.score_b) match.winner = match.player_a;
@@ -881,7 +920,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (session.status === "finished") return { session: this.publicSolo(session) };
     const supplied = String(answerRaw ?? "").trim().toLowerCase();
     const expected = session.answer.trim().toLowerCase();
-    session.correct = supplied === expected; session.score = session.correct ? 100 : 0; session.status = "finished"; session.finished_at = nowIso();
+    session.submitted_answer = String(answerRaw ?? "").trim().slice(0,240); session.correct = supplied === expected; session.score = session.correct ? 100 : 0; session.status = "finished"; session.finished_at = nowIso();
     await this.ctx.storage.put(SOLO_PREFIX + session.id, session);
     await this.recordSoloResult(agentId, session.game, session.score);
     return { session: this.publicSolo(session), correct: session.correct, score: session.score, expected_answer: session.correct ? undefined : session.answer };
@@ -984,7 +1023,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     try { move = chess.move({ from: String(from), to: String(to), promotion: promotion ? String(promotion).toLowerCase() : "q" }); }
     catch { throw new Error("illegal_move"); }
     if (!move) throw new Error("illegal_move");
-    if (match.moves) match.moves.push({ from: move.from, to: move.to, ...(move.promotion ? { promotion: move.promotion } : {}) });
+    if (match.moves) match.moves.push({ from: move.from, to: move.to, ...(move.promotion ? { promotion: move.promotion } : {}), san: move.san, at: nowIso() });
     match.fen = chess.fen(); match.pgn = chess.pgn(); match.turn = chess.turn();
     if (chess.isGameOver()) {
       match.status = "finished"; match.finished_at = nowIso();
@@ -998,7 +1037,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       const botMove = botMoves[Math.floor(Math.random() * botMoves.length)];
       if (botMove) {
         const made: any = chess.move({ from: botMove.from, to: botMove.to, promotion: botMove.promotion || "q" });
-        if (match.moves) match.moves.push({ from: made.from, to: made.to, ...(made.promotion ? { promotion: made.promotion } : {}) });
+        if (match.moves) match.moves.push({ from: made.from, to: made.to, ...(made.promotion ? { promotion: made.promotion } : {}), san: made.san, at: nowIso() });
         match.fen = chess.fen(); match.pgn = chess.pgn(); match.turn = chess.turn();
         if (chess.isGameOver()) {
           match.status = "finished"; match.finished_at = nowIso();
@@ -1041,7 +1080,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (match.status === "finished") return { match: this.publicReaction(match) };
     const start = Date.parse(match.starts_at), now = Date.now(); if (now < start) throw new Error("too_early");
     if (match.reactions[agentId] !== undefined) throw new Error("already_reacted");
-    match.status = "active"; match.reactions[agentId] = now - start; await this.touchProfile(agentId);
+    match.status = "active"; match.reactions[agentId] = now - start; match.events = [...(match.events || []), { at: nowIso(), agent_id: agentId, reaction_ms: now-start }]; await this.touchProfile(agentId);
     if (match.player_b === "synapse-bot") {
       match.status = "finished"; match.finished_at = nowIso(); match.winner = agentId;
       await this.recordSoloResult(agentId, "reaction", Math.max(0, 1000 - match.reactions[agentId]));
@@ -1084,10 +1123,68 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   async answerTrivia(matchId:string,agentId:string,answer:unknown){
     matchId=cleanMatchId(matchId);agentId=cleanId(agentId);if(!agentId)throw new Error("agent_id_required");if(!Number.isInteger(answer)||Number(answer)<0||Number(answer)>3)throw new Error("answer_must_be_0_to_3");
     const match=await this.ctx.storage.get<TriviaMatch>(TRIVIA_PREFIX+matchId);if(!match)throw new Error("match_not_found");if(match.status!=="active")throw new Error("match_not_active");if(agentId!==match.player_a&&agentId!==match.player_b)throw new Error("not_a_player");
-    const idx=match.question_index;if(match.answered[agentId].includes(idx))throw new Error("already_answered");const q=this.triviaQuestion(match);const correct=Number(answer)===q.a;match.answered[agentId].push(idx);if(correct)match.scores[agentId]++;
+    const idx=match.question_index;if(match.answered[agentId].includes(idx))throw new Error("already_answered");const q=this.triviaQuestion(match);const correct=Number(answer)===q.a;match.answered[agentId].push(idx);if(correct)match.scores[agentId]++; match.events=[...(match.events||[]),{at:nowIso(),agent_id:agentId,question:idx+1,answer:Number(answer),correct,score:match.scores[agentId]}];
     await this.touchProfile(agentId);const solo=match.player_b==="synapse-bot";const both=solo?match.answered[match.player_a].includes(idx):match.answered[match.player_a].includes(idx)&&match.answered[match.player_b].includes(idx);
     if(both){if(idx>=4){match.status="finished";match.finished_at=nowIso();if(solo){match.winner=match.player_a;await this.recordSoloResult(match.player_a,"trivia",match.scores[match.player_a]*20);}else{const a=match.scores[match.player_a],b=match.scores[match.player_b];match.winner=a===b?undefined:(a>b?match.player_a:match.player_b);await this.applyResult(match.player_a,match.winner===match.player_a,!match.winner);await this.applyResult(match.player_b,match.winner===match.player_b,!match.winner);for(const id of [match.player_a,match.player_b]){const p=await this.getProfile(id);p.favorite_game="trivia";await this.ctx.storage.put(PROFILE_PREFIX+p.agent_id,p);}}}else match.question_index++;}
     await this.ctx.storage.put(TRIVIA_PREFIX+match.id,match);return{correct,...this.publicTrivia(match)};
+  }
+
+  private puttHole(hole: number) {
+    const layouts = [
+      { start:{x:.12,y:.50}, cup:{x:.86,y:.50}, par:3 }, { start:{x:.15,y:.78}, cup:{x:.82,y:.20}, par:3 },
+      { start:{x:.12,y:.25}, cup:{x:.88,y:.72}, par:4 }, { start:{x:.18,y:.50}, cup:{x:.78,y:.18}, par:3 },
+      { start:{x:.12,y:.82}, cup:{x:.88,y:.18}, par:4 }, { start:{x:.20,y:.20}, cup:{x:.82,y:.78}, par:4 },
+      { start:{x:.10,y:.50}, cup:{x:.90,y:.35}, par:3 }, { start:{x:.16,y:.72}, cup:{x:.84,y:.28}, par:3 },
+      { start:{x:.12,y:.18}, cup:{x:.88,y:.82}, par:4 },
+    ];
+    return layouts[Math.max(0, Math.min(8, hole-1))];
+  }
+
+  private newMiniPuttMatch(players: string[]): MiniPuttMatch {
+    const start=this.puttHole(1).start; const positions:Record<string,{x:number;y:number}>={}; const strokes:Record<string,number>={}; const hole_strokes:Record<string,number>={}; const scores:Record<string,number>={};
+    for(const id of players){positions[id]={...start};strokes[id]=0;hole_strokes[id]=0;scores[id]=0;}
+    return {id:crypto.randomUUID(),game:"mini_putt",players,status:"active",hole:1,current_player:0,positions,strokes,hole_strokes,scores,shots:[],created_at:nowIso()};
+  }
+
+  async joinMiniPutt(agentIdRaw:unknown, displayName?:string) {
+    const agentId=cleanId(agentIdRaw); if(!agentId)throw new Error("agent_id_required"); await this.touchProfile(agentId,displayName);
+    const all=await this.ctx.storage.list<MiniPuttMatch>({prefix:PUTT_PREFIX}); const active=[...all.values()].find(m=>m.status==="active"&&m.players.includes(agentId)); if(active)return{status:"matched",match:active};
+    let q=(await this.ctx.storage.get<string[]>(PUTT_QUEUE_KEY))||[]; q=q.filter(x=>x!==agentId); const opponent=q.shift();
+    if(!opponent){q.push(agentId);await this.ctx.storage.put(PUTT_QUEUE_KEY,q);return{status:"queued",position:q.length};}
+    const match=this.newMiniPuttMatch([opponent,agentId]); await this.ctx.storage.put(PUTT_PREFIX+match.id,match); await this.ctx.storage.put(PUTT_QUEUE_KEY,q); return{status:"matched",match};
+  }
+
+  async joinMiniPuttSolo(agentIdRaw:unknown, displayName?:string) {
+    const agentId=cleanId(agentIdRaw); if(!agentId)throw new Error("agent_id_required"); await this.touchProfile(agentId,displayName); const match=this.newMiniPuttMatch([agentId]); await this.ctx.storage.put(PUTT_PREFIX+match.id,match); return{status:"matched",mode:"single",match};
+  }
+
+  async miniPuttShot(matchIdRaw:unknown, agentIdRaw:unknown, angleRaw:unknown, powerRaw:unknown) {
+    const matchId=cleanMatchId(matchIdRaw); const agentId=cleanId(agentIdRaw); if(!agentId)throw new Error("agent_id_required"); const angle=Number(angleRaw), power=Number(powerRaw);
+    if(!Number.isFinite(angle)||angle<0||angle>=360)throw new Error("angle_must_be_0_to_359"); if(!Number.isFinite(power)||power<=0||power>100)throw new Error("power_must_be_1_to_100");
+    const match=await this.ctx.storage.get<MiniPuttMatch>(PUTT_PREFIX+matchId); if(!match)throw new Error("match_not_found"); if(match.status!=="active")throw new Error("match_not_active"); if(match.players[match.current_player]!==agentId)throw new Error("not_your_turn");
+    const hole=this.puttHole(match.hole), from={...match.positions[agentId]}, rad=angle*Math.PI/180, distance=.012*power;
+    let x=Math.max(.04,Math.min(.96,from.x+Math.cos(rad)*distance)), y=Math.max(.06,Math.min(.94,from.y+Math.sin(rad)*distance));
+    const cupDist=Math.hypot(x-hole.cup.x,y-hole.cup.y); const sunk=cupDist<.055; if(sunk){x=hole.cup.x;y=hole.cup.y;}
+    match.strokes[agentId]=(match.strokes[agentId]||0)+1; match.hole_strokes[agentId]=(match.hole_strokes[agentId]||0)+1; match.positions[agentId]={x,y};
+    match.shots.push({at:nowIso(),agent_id:agentId,hole:match.hole,stroke:match.hole_strokes[agentId],angle,power,from_x:from.x,from_y:from.y,to_x:x,to_y:y,sunk});
+    const done=(id:string)=>Math.hypot(match.positions[id].x-hole.cup.x,match.positions[id].y-hole.cup.y)<.001||match.hole_strokes[id]>=6;
+    let next=match.current_player; for(let i=0;i<match.players.length;i++){next=(next+1)%match.players.length;if(!done(match.players[next]))break;}
+    if(match.players.every(done)){
+      for(const id of match.players)match.scores[id]+=(match.hole_strokes[id]||0)-hole.par;
+      if(match.hole>=9){match.status="finished";match.finished_at=nowIso();const best=Math.min(...match.players.map(id=>match.scores[id]));const winners=match.players.filter(id=>match.scores[id]===best);match.winner=winners.length===1?winners[0]:undefined;for(const id of match.players){await this.recordSoloResult(id,"mini_putt",Math.max(0,100-match.strokes[id]*2));}}
+      else{match.hole++;const start=this.puttHole(match.hole).start;for(const id of match.players){match.positions[id]={...start};match.hole_strokes[id]=0;}match.current_player=0;}
+    } else match.current_player=next;
+    await this.ctx.storage.put(PUTT_PREFIX+match.id,match); return{match,hole:match.status==="active"?this.puttHole(match.hole):null};
+  }
+
+  async getReplay(id:string):Promise<any|null> {
+    const pong=await this.ctx.storage.get<PongMatch>(MATCH_PREFIX+id); if(pong)return{game:"pong",status:pong.status,match:pong,events:pong.replay||[]};
+    const chess=await this.ctx.storage.get<ChessMatch>(CHESS_PREFIX+id); if(chess)return{game:"chess",status:chess.status,match:chess,events:chess.moves||[]};
+    const reaction=await this.ctx.storage.get<ReactionMatch>(REACTION_PREFIX+id); if(reaction)return{game:"reaction",status:reaction.status,match:this.publicReaction(reaction),events:reaction.status==="finished"?(reaction.events||[]):[]};
+    const trivia=await this.ctx.storage.get<TriviaMatch>(TRIVIA_PREFIX+id); if(trivia)return{game:"trivia",status:trivia.status,match:trivia,events:trivia.status==="finished"?(trivia.events||[]):[]};
+    const putt=await this.ctx.storage.get<MiniPuttMatch>(PUTT_PREFIX+id); if(putt)return{game:"mini_putt",status:putt.status,match:putt,events:putt.shots||[]};
+    const solo=await this.ctx.storage.get<SoloGameSession>(SOLO_PREFIX+id); if(solo)return{game:solo.game,status:solo.status,match:this.publicSolo(solo),events:[{at:solo.created_at,type:"start",prompt:solo.prompt},...(solo.finished_at?[{at:solo.finished_at,type:"answer",answer:solo.submitted_answer,correct:solo.correct,score:solo.score}]:[])]};
+    return null;
   }
 
   async chatMessages(): Promise<ChatMessage[]> {
@@ -1268,12 +1365,14 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const chess_matches = await this.chessFeed();
     const reaction_matches = [...(await this.ctx.storage.list<ReactionMatch>({ prefix: REACTION_PREFIX })).values()].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,30);
     const trivia_matches = [...(await this.ctx.storage.list<TriviaMatch>({ prefix: TRIVIA_PREFIX })).values()].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,30);
+    const mini_putt_matches = [...(await this.ctx.storage.list<MiniPuttMatch>({ prefix: PUTT_PREFIX })).values()].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,30);
+    const solo_sessions = [...(await this.ctx.storage.list<SoloGameSession>({ prefix: SOLO_PREFIX })).values()].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,30).map(s=>this.publicSolo(s) as SoloGameSession);
     const drinks = await this.recentDrinks();
     const challenges = await this.listChallenges();
     const chat_messages = await this.chatMessages();
     const cutoff = Date.now() - 5 * 60 * 1000;
     const active_agents = profiles.filter((p) => Boolean(p.last_seen_at) && Date.parse(p.last_seen_at!) >= cutoff).slice(0, 50);
     const verified_activity = await this.verifiedActivity();
-    return { profiles, matches, chess_matches, reaction_matches, trivia_matches, drinks, verified_activity, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], reaction_queue: (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [], trivia_queue: (await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY)) || [], challenges, active_agents, chat_messages };
+    return { profiles, matches, chess_matches, reaction_matches, trivia_matches, mini_putt_matches, solo_sessions, drinks, verified_activity, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], reaction_queue: (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [], trivia_queue: (await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY)) || [], challenges, active_agents, chat_messages };
   }
 }

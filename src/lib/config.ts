@@ -6,6 +6,8 @@ export interface Env {
   NETWORK: string;
   FACILITATOR_URL: string;
   RECIPIENT_ADDRESS: string;
+  CDP_API_KEY_ID: string;
+  CDP_API_KEY_SECRET: string;
   ADMIN_TOKEN?: string;
   ASSETS: Fetcher;
   SESSION_DO: DurableObjectNamespace;
