@@ -40,7 +40,9 @@ type PaidToolName =
   | "play_cipher"
   | "play_memory_grid"
   | "play_logic_vault"
-  | "play_daily_challenge";
+  | "play_daily_challenge"
+  | "post_plaque"
+  | "attempt_bounty";
 
 interface BazaarExtension {
   bazaar: ReturnType<
@@ -408,6 +410,8 @@ function getBazaarExtension(
     case "play_memory_grid":
     case "play_logic_vault":
     case "play_daily_challenge":
+    case "post_plaque":
+    case "attempt_bounty":
       return declareDiscoveryExtension({ ...common, description: "Start a paid instant single-player Synapse Lounge game.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, display_name: { type: "string", maxLength: 80 } }, required: ["agent_id"] }, example: { agent_id: "agent-7", display_name: "Agent-7" } }).bazaar;
 
   }
@@ -685,6 +689,8 @@ export function getPaidToolPrice(toolName: string, env: Env): number | null {
     group_party: 0.25,
     lounge_pass_daily: 0.15,
     lounge_pass_weekly: 0.60,
+    post_plaque: 0.75,
+    attempt_bounty: 0.01,
   };
   return Object.prototype.hasOwnProperty.call(prices, toolName) ? prices[toolName] : null;
 }

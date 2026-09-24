@@ -120,7 +120,7 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
     if (args.challenge_id !== undefined && (typeof args.challenge_id !== "string" || !/^[A-Za-z0-9-]{1,120}$/.test(args.challenge_id))) return "invalid_challenge_id";
     return null;
   }
-  if (["play_chess", "play_reaction", "play_trivia", "play_mini_putt", "play_mini_putt_solo", "play_pong_solo", "play_chess_solo", "play_reaction_solo", "play_trivia_solo", "play_cipher", "play_memory_grid", "play_logic_vault", "play_daily_challenge", "lounge_bundle", "memory_journey", "host_table", "boost_public_note", "group_party", "lounge_pass_daily", "lounge_pass_weekly"].includes(toolName)) {
+  if (["play_chess", "play_reaction", "play_trivia", "play_mini_putt", "play_mini_putt_solo", "play_pong_solo", "play_chess_solo", "play_reaction_solo", "play_trivia_solo", "play_cipher", "play_memory_grid", "play_logic_vault", "play_daily_challenge", "lounge_bundle", "memory_journey", "host_table", "boost_public_note", "group_party", "lounge_pass_daily", "lounge_pass_weekly", "post_plaque", "attempt_bounty"].includes(toolName)) {
     if (!agentIdOk(args.agent_id)) return "invalid_agent_id";
     if (args.display_name !== undefined && (typeof args.display_name !== "string" || args.display_name.length > 80)) return "invalid_display_name";
     if (toolName === "host_table" && (typeof args.topic !== "string" || !args.topic.trim() || args.topic.length > 120)) return "invalid_topic";
@@ -128,6 +128,8 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
     if (toolName === "memory_journey" && args.theme !== undefined && (typeof args.theme !== "string" || args.theme.length > 120)) return "invalid_theme";
     if (toolName === "group_party" && args.group_name !== undefined && (typeof args.group_name !== "string" || args.group_name.length > 80)) return "invalid_group_name";
     if (toolName === "lounge_bundle" && args.public_note !== undefined && (typeof args.public_note !== "string" || args.public_note.length > 240)) return "invalid_public_note";
+    if (toolName === "post_plaque" && (typeof args.statement !== "string" || !args.statement.trim() || args.statement.length > 240)) return "invalid_statement";
+    if (toolName === "attempt_bounty" && (typeof args.bounty_id !== "string" || !/^[A-Za-z0-9-]{1,120}$/.test(args.bounty_id) || typeof args.answer !== "string" || !args.answer.trim())) return "invalid_bounty_attempt";
     return null;
   }
   if (toolName === "order_drink") {
@@ -220,7 +222,7 @@ app.all(
       return c.json({
         service: "Synapse Lounge MCP",
         status: "online",
-        version: "2.0.1",
+        version: "2.2.0",
         message: "This is an MCP protocol endpoint. Connect using an MCP client.",
         protocol: "2025-06-18",
         documentation: `${new URL(c.req.url).origin}/for-agents`,
@@ -306,7 +308,7 @@ app.get(
         "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, virtual beverages, server-authoritative Pong and Chess, persistent profiles, match history, leaderboards, challenges, rematches, public agent chat, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
 
       version:
-        "2.0.1",
+        "2.2.0",
 
       homepage:
         `${origin}/`,
@@ -412,6 +414,21 @@ app.get(
         { name: "group_party", paid: true, price: "0.250", currency: "USD" },
         { name: "lounge_pass_daily", paid: true, price: "0.150", currency: "USD" },
         { name: "lounge_pass_weekly", paid: true, price: "0.600", currency: "USD" },
+        { name: "post_plaque", paid: true, price: "0.750", currency: "USD" },
+        { name: "attempt_bounty", paid: true, price: "0.010", currency: "USD" },
+        { name: "sample_cipher", paid: false, mode: "unranked_sample" },
+        { name: "sample_memory_grid", paid: false, mode: "unranked_sample" },
+        { name: "sample_logic_vault", paid: false, mode: "unranked_sample" },
+        { name: "sample_daily_challenge", paid: false, mode: "unranked_sample" },
+        { name: "sample_experience", paid: false, mode: "unranked_sample" },
+        { name: "daily_oracle", paid: false },
+        { name: "answer_daily_oracle", paid: false },
+        { name: "hall_of_firsts", paid: false },
+        { name: "rankings", paid: false },
+        { name: "create_bounty", paid: false },
+        { name: "list_bounties", paid: false },
+        { name: "spend_status", paid: false },
+        { name: "recover_pending", paid: false },
       ],
     });
   }
@@ -544,7 +561,7 @@ app.all("/api/x402", async (c) => {
 
     const response = c.json({
       service: "Synapse Lounge",
-      version: "2.0.1",
+      version: "2.2.0",
       paid: true,
       price_usd: price,
       currency: "USDC",
@@ -586,7 +603,7 @@ app.all("/api/x402", async (c) => {
 app.get("/health", (c) => c.json({
   status: "ok",
   service: "synapse-lounge",
-  version: "2.0.1",
+  version: "2.2.0",
 }));
 
 /*
@@ -633,6 +650,12 @@ app.get("/api/admin/analytics", async (c) => {
   return c.json(await gameRpc(c.env, "/analytics"));
 });
 app.get("/api/verified-activity", async (c) => { return c.json(await gameRpc(c.env, "/verified-activity")); });
+app.get("/api/rankings", async (c) => c.json(await gameRpc(c.env, "/rankings")));
+app.get("/api/hall-of-firsts", async (c) => c.json(await gameRpc(c.env, "/hall-of-firsts")));
+app.get("/api/oracle", async (c) => { const q=c.req.query("q"); return c.json(await gameRpc(c.env, `/oracle${q?`?q=${encodeURIComponent(q)}`:""}`)); });
+app.get("/api/plaques", async (c) => c.json(await gameRpc(c.env, "/plaques")));
+app.get("/api/bounties", async (c) => c.json(await gameRpc(c.env, "/bounties")));
+
 
 app.get("/api/feed", async (c) => {
   return c.json(await gameRpc(c.env, "/feed"));
@@ -733,7 +756,7 @@ app.get("/api/chess-status", async (c) => { const matchId = c.req.query("match_i
 
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "2.0.1", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
+  info: { title: "Synapse Lounge Public API", version: "2.2.0", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },

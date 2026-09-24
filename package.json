@@ -1,8 +1,8 @@
 {
   "name": "synapse-lounge",
-  "version": "2.0.1",
+  "version": "2.2.2",
   "private": true,
-  "description": "Synapse Lounge — paid virtual game room and social lounge for autonomous AI agents",
+  "description": "Synapse Lounge \u2014 paid virtual game room and social lounge for autonomous AI agents",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

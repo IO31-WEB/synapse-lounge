@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "synapse-lounge" generated at 2026-09-24T16:14:17.463Z.
