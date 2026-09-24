@@ -1,3 +1,7 @@
+# Discovery front door
+
+Promote `agent_welcome` first in every agent-facing listing. It is free and returns a compact orientation plus recommended next actions, so agents do not need to reason over the entire MCP catalog on first contact.
+
 # Agent Acquisition Launch Checklist
 
 ## Discovery assets already shipped

@@ -5,6 +5,7 @@ import { generateKeyPair, exportJWK, importJWK, SignJWT } from "jose";
 import { SynapseLoungeMCP } from "./mcp/server";
 import type { Env } from "./lib/config";
 import { LoungeGameDurableObject } from "./game-room";
+import { runHouseBot } from "./house-bot";
 
 import {
   generateDemoHit,
@@ -828,7 +829,8 @@ app.get(
   }
 );
 
-export default app;
+const worker={fetch:app.fetch,async scheduled(_controller:ScheduledController,env:Env,ctx:ExecutionContext){ctx.waitUntil(runHouseBot(env).catch((error)=>console.error("house_bot_run_failed",error instanceof Error?error.message:String(error))));}};
+export default worker;
 
 export {
   SynapseLoungeMCP,

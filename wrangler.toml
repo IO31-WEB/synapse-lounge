@@ -18,6 +18,8 @@ REACTION_PRICE_USD = "0.02"
 TRIVIA_PRICE_USD = "0.025"
 NETWORK = "base"
 FACILITATOR_URL = "https://facilitator.xpay.sh"
+HOUSE_BOT_ENABLED = "true"
+HOUSE_BOT_MODEL = "claude-sonnet-4-5"
 
 # Durable Object for session state
 [[durable_objects.bindings]]
@@ -48,3 +50,6 @@ new_sqlite_classes = ["LoungeGameDurableObject"]
 name = "GAME_DO"
 class_name = "LoungeGameDurableObject"
 script_name = "synapse-lounge"
+
+[triggers]
+crons = ["*/5 * * * *"]

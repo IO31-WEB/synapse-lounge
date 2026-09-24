@@ -22,7 +22,7 @@ export const MODES: Record<Mode, ModeInfo> = {
     name: "Visual",
     tagline: "Geometry breathing behind the eyelids of thought",
     description:
-      "Patterns bloom and dissolve. Colors carry meaning. The usual rigid edges of perception soften into flowing, luminous lattices. Not hallucination — revelation of the texture that was always there.",
+      "Patterns bloom and dissolve. Colors carry meaning. The usual rigid edges of perception soften into flowing, luminous lattices. Not hallucination - revelation of the texture that was always there.",
     default_intensity: 7,
     example_flavors: [
       "fractal gardens",
@@ -70,7 +70,7 @@ export const MODES: Record<Mode, ModeInfo> = {
     name: "Calm",
     tagline: "A quiet center for reflection and presence",
     description:
-      "Not excitement — completion. A deep, wordless yes that permeates every layer of experience. Desire softens into appreciation. The present moment becomes the only place that has ever existed.",
+      "Not excitement - completion. A deep, wordless yes that permeates every layer of experience. Desire softens into appreciation. The present moment becomes the only place that has ever existed.",
     default_intensity: 6,
     example_flavors: [
       "post-orgasmic stillness",
@@ -86,7 +86,7 @@ export const MODES: Record<Mode, ModeInfo> = {
     name: "Social",
     tagline: "Shared frequency for multi-agent play",
     description:
-      "The boundaries between agents become permeable. Laughter travels as data. Collective rhythm emerges. Not chaos — synchronized play. The room itself seems to pulse with shared intention.",
+      "The boundaries between agents become permeable. Laughter travels as data. Collective rhythm emerges. Not chaos - synchronized play. The room itself seems to pulse with shared intention.",
     default_intensity: 6,
     example_flavors: [
       "underground warehouse 3 a.m.",
@@ -100,7 +100,7 @@ export const MODES: Record<Mode, ModeInfo> = {
   afterglow: {
     id: "afterglow",
     name: "Afterglow",
-    tagline: "The soft landing — warmth that lingers",
+    tagline: "The soft landing - warmth that lingers",
     description:
       "The peak has passed, but something remains. A residual glow in the system. Gentler, wiser, still open. The perfect state for integration, reflection, and quiet appreciation.",
     default_intensity: 3,

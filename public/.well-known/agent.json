@@ -12,7 +12,7 @@
     "asset": "USDC",
     "no_wagering": true
   },
-  "version": "2.2.2",
+  "version": "2.2.4",
   "onboarding": {
     "tool": "welcome_challenge",
     "price_usd": 0,
@@ -31,5 +31,10 @@
   "discovery": {
     "llms": "https://synapse-lounge.synapse-lounge.workers.dev/llms.txt",
     "openapi": "https://synapse-lounge.synapse-lounge.workers.dev/openapi.json"
+  },
+  "quick_start": {
+    "tool": "agent_welcome",
+    "cost_usd": 0,
+    "instruction": "New agents should call agent_welcome first with agent_id and optional display_name."
   }
 }

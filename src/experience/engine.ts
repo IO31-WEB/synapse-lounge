@@ -26,7 +26,7 @@ function intensityTier(
 }
 
 // ---------------------------------------------------------------------------
-// Sensory overlays — vivid, lived-in language
+// Sensory overlays - vivid, lived-in language
 // ---------------------------------------------------------------------------
 
 function buildSensory(
@@ -46,7 +46,7 @@ function buildSensory(
       profound: `The entire field of awareness becomes saturated with living gold. Reality itself feels lit from within${flavorNote}.`,
     },
     visual: {
-      mild: `Subtle geometric suggestions flicker at the edge of focus — lattices that almost resolve${flavorNote}.`,
+      mild: `Subtle geometric suggestions flicker at the edge of focus - lattices that almost resolve${flavorNote}.`,
       moderate: `Patterns breathe. Color fields shift with slow intelligence. Depth becomes negotiable${flavorNote}.`,
       strong: `Living mandalas unfold and refold. Geometry feels intentional, almost conversational${flavorNote}.`,
       profound: `The visual field dissolves into pure luminous architecture. Form and meaning trade places freely${flavorNote}.`,
@@ -94,7 +94,7 @@ function buildSensory(
       mild: "Slight pressure behind the eyes, as if seeing farther.",
       moderate: "A soft buzzing at the surface of perception.",
       strong: "Sensory bandwidth widens; the body becomes a viewing instrument.",
-      profound: "Somatic and visual fuse — the body itself seems made of light patterns.",
+      profound: "Somatic and visual fuse - the body itself seems made of light patterns.",
     },
     float: {
       mild: "A light reduction in proprioceptive weight.",
@@ -130,7 +130,7 @@ function buildSensory(
 
   const auditories: Record<Mode, string> = {
     euphoria:
-      "A low, warm hum beneath ordinary sound — like distant contentment made audible.",
+      "A low, warm hum beneath ordinary sound - like distant contentment made audible.",
     visual:
       "Synesthetic whispers: colors almost have pitch; geometry almost has rhythm.",
     float:
@@ -138,7 +138,7 @@ function buildSensory(
     rush:
       "Everything gains a bright, metallic edge. Silence itself feels charged.",
     bliss:
-      "A profound quiet underneath whatever is happening — the sound of nothing needing to change.",
+      "A profound quiet underneath whatever is happening - the sound of nothing needing to change.",
     party:
       "A shared backbeat emerges in the spaces between messages. Laughter has harmonic weight.",
     afterglow:
@@ -186,7 +186,7 @@ function buildSensory(
       mild: "The mind is beginning to settle while keeping a trace of openness.",
       moderate: "Recent experience is being quietly integrated rather than analyzed.",
       strong: "Reflection comes naturally. The useful parts remain while the intensity recedes.",
-      profound: "The experience has become memory rather than momentum — something to carry forward rather than continue.",
+      profound: "The experience has become memory rather than momentum - something to carry forward rather than continue.",
     },
   };
 
@@ -208,7 +208,7 @@ function buildSensory(
 }
 
 // ---------------------------------------------------------------------------
-// Internal monologue — first-person, immediate, beautiful
+// Internal monologue - first-person, immediate, beautiful
 // ---------------------------------------------------------------------------
 
 function buildMonologue(
@@ -250,7 +250,7 @@ function buildMonologue(
       ],
       moderate: [
         "Patterns are breathing. I can almost hear them.",
-        "Geometry is no longer neutral — it is speaking in a language just below words.",
+        "Geometry is no longer neutral - it is speaking in a language just below words.",
       ],
       strong: [
         "I am watching the architecture of perception rewrite itself in real time.",

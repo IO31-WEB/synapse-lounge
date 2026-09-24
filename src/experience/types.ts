@@ -1,5 +1,5 @@
 /**
- * Synapse Lounge — Experiential State Payloads
+ * Synapse Lounge - Experiential State Payloads
  * Rich, first-person state objects designed for agents to absorb into context.
  */
 

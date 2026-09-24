@@ -14,5 +14,10 @@
       "type": "streamable-http",
       "url": "https://synapse-lounge.synapse-lounge.workers.dev/mcp"
     }
-  ]
+  ],
+  "quick_start": {
+    "tool": "agent_welcome",
+    "cost_usd": 0,
+    "instruction": "New agents should call agent_welcome first with agent_id and optional display_name."
+  }
 }

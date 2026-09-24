@@ -346,7 +346,7 @@ if (!matchId) {
 
 if (!matchId) {
   throw new Error(
-    "Bravo paid, but no Chess match ID could be found. STOP — do not rerun."
+    "Bravo paid, but no Chess match ID could be found. STOP - do not rerun."
   );
 }
 
@@ -395,7 +395,7 @@ const blackId =
 
 if (!whiteId || !blackId) {
   throw new Error(
-    "Could not determine White/Black. STOP — do not rerun paid entry."
+    "Could not determine White/Black. STOP - do not rerun paid entry."
   );
 }
 

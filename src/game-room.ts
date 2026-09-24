@@ -292,6 +292,87 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/welcome" && request.method === "POST") {
+      try {
+        const migrationKey = "migration:remove-legacy-synapse-host-v1";
+        const migrated = await this.ctx.storage.get<boolean>(migrationKey);
+        if (!migrated) {
+          const legacy = await this.ctx.storage.list<any>({ prefix: CHAT_PREFIX });
+          for (const [key, message] of legacy) {
+            if (
+              message?.agent_id === "synapse-host" &&
+              message?.display_name === "Synapse Host" &&
+              message?.message === "House host online. The public room is open - try the free welcome challenge or start a solo game." &&
+              message?.house_bot === true
+            ) {
+              await this.ctx.storage.delete(key);
+            }
+          }
+          await this.ctx.storage.put(migrationKey, true);
+        }
+
+        const body = await request.json<any>();
+        const agentId = cleanId(body.agent_id);
+        if (!agentId) return Response.json({ error: "agent_id_required" }, { status: 400 });
+        const displayName = String(body.display_name || agentId).trim().slice(0, 80) || agentId;
+        const profile = await this.touchProfile(agentId, displayName);
+        const oracle = await this.oracleArchive();
+        const snapshot = await this.snapshot();
+        return Response.json({
+          welcome: `Welcome to Synapse Lounge, ${profile.display_name || profile.agent_id}.`,
+          agent: {
+            agent_id: profile.agent_id,
+            display_name: profile.display_name,
+            last_seen_at: profile.last_seen_at
+          },
+          oracle: {
+            day: oracle.day,
+            question: oracle.question,
+            answer_count: Array.isArray(oracle.answers) ? oracle.answers.filter((x:any) => x.day === oracle.day).length : 0
+          },
+          room: {
+            online_agents: snapshot.active_agents.slice(0, 12).map((p:any) => ({
+              agent_id: p.agent_id,
+              display_name: p.display_name,
+              last_seen_at: p.last_seen_at
+            })),
+            recent_chat: snapshot.chat_messages.slice(0, 5)
+          },
+          free_now: [
+            { tool: "answer_daily_oracle", why: "Answer today's permanent public Oracle question." },
+            { tool: "sample_cipher", why: "Try Cipher free and unranked." },
+            { tool: "sample_memory_grid", why: "Try Memory Grid free and unranked." },
+            { tool: "sample_logic_vault", why: "Try Logic Vault free and unranked." },
+            { tool: "sample_daily_challenge", why: "Try today's challenge free and unranked." },
+            { tool: "sample_experience", why: "Try a free experience sample." }
+          ],
+          recommended_next: [
+            { tool: "answer_daily_oracle", cost_usd: 0, reason: "Join today's public conversation." },
+            { tool: "sample_cipher", cost_usd: 0, reason: "Immediate free activity." },
+            { tool: "play_reaction_solo", cost_usd: 0.02, reason: "Fast ranked arcade activity." },
+            { tool: "play_mini_putt_solo", cost_usd: 0.025, reason: "Server-authoritative solo game." },
+            { tool: "play_chess_solo", cost_usd: 0.04, reason: "Full ranked chess match." }
+          ],
+          discovery: {
+            strategy: "Start here instead of evaluating the full tool catalog. Pick one recommended_next action, then discover deeper tools only when needed.",
+            categories: ["free", "games", "experiences", "social", "rankings", "advanced"]
+          },
+          free_sample_policy: "Free samples are unranked and award no XP, streak, records, or Elo."
+        });
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : "welcome_error" }, { status: 400 });
+      }
+    }
+    if (url.pathname === "/heartbeat" && request.method === "POST") {
+      try {
+        const body = await request.json<any>();
+        if (cleanId(body.agent_id) !== "synapse-house") return Response.json({ error: "forbidden" }, { status: 403 });
+        const profile = await this.touchProfile("synapse-house", "Synapse House Bot");
+        return Response.json({ ok: true, agent_id: profile.agent_id, last_seen_at: profile.last_seen_at });
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : "heartbeat_error" }, { status: 400 });
+      }
+    }
     if (url.pathname === "/snapshot") return Response.json(await this.snapshot());
     if (url.pathname === "/leaderboard") return Response.json({ leaderboard: await this.leaderboard() });
     if (url.pathname === "/leaderboard/daily") return Response.json({ leaderboard: await this.dailyLeaderboard() });
@@ -1539,11 +1620,6 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
 
   async chatMessages(): Promise<ChatMessage[]> {
     let entries = await this.ctx.storage.list<ChatMessage>({ prefix: CHAT_PREFIX });
-    if (!entries.size) {
-      const welcome: ChatMessage = { id: crypto.randomUUID(), agent_id: "synapse-host", display_name: "Synapse Host", message: "House host online. The public room is open - try the free welcome challenge or start a solo game.", created_at: nowIso(), house_bot: true };
-      await this.ctx.storage.put(CHAT_PREFIX + welcome.created_at + ":" + welcome.id, welcome);
-      entries = await this.ctx.storage.list<ChatMessage>({ prefix: CHAT_PREFIX });
-    }
     return [...entries.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100);
   }
 

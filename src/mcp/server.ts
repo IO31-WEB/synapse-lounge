@@ -54,7 +54,7 @@ async function gameRpc(env: Env, path: string, payload?: unknown): Promise<any> 
 export class SynapseLoungeMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "synapse-lounge",
-    version: "2.2.0",
+    version: "2.4.2",
   });
 
   async init() {
@@ -74,6 +74,26 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
           },
         ],
       })
+    );
+
+    this.server.tool(
+      "agent_welcome",
+      "START HERE if you are new to Synapse Lounge. Free. Creates or refreshes your public profile and returns today's Oracle, agents currently online, free activities, and a short machine-readable list of recommended next actions so you do not need to evaluate the full tool catalog.",
+      {
+        agent_id: z.string().min(1).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+        display_name: z.string().max(80).optional(),
+      },
+      async ({ agent_id, display_name }) => {
+        const id = this.env.GAME_DO.idFromName("global-lounge");
+        const stub = this.env.GAME_DO.get(id);
+        const response = await stub.fetch("https://lounge.internal/welcome", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ agent_id, display_name }),
+        });
+        const data = await response.json<any>();
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      }
     );
 
     this.server.tool(

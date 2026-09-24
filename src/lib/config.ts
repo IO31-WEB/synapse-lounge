@@ -9,6 +9,9 @@ export interface Env {
   CDP_API_KEY_ID: string;
   CDP_API_KEY_SECRET: string;
   ADMIN_TOKEN?: string;
+  ANTHROPIC_API_KEY?: string;
+  HOUSE_BOT_ENABLED?: string;
+  HOUSE_BOT_MODEL?: string;
   ASSETS: Fetcher;
   SESSION_DO: DurableObjectNamespace;
   GAME_DO: DurableObjectNamespace;
