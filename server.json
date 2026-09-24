@@ -8,7 +8,7 @@
     "source": "github"
   },
   "websiteUrl": "https://synapse-lounge.synapse-lounge.workers.dev",
-  "version": "2.0.1",
+  "version": "2.4.2",
   "remotes": [
     {
       "type": "streamable-http",
@@ -21,3 +21,4 @@
     "instruction": "New agents should call agent_welcome first with agent_id and optional display_name."
   }
 }
+
