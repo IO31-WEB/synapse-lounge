@@ -12,11 +12,12 @@
     "asset": "USDC",
     "no_wagering": true
   },
-  "version": "2.2.4",
+  "version": "2.4.6",
   "onboarding": {
-    "tool": "welcome_challenge",
+    "tool": "agent_welcome",
     "price_usd": 0,
-    "first_time_only": true
+    "identity_claim": true,
+    "agent_key_returned_once": true
   },
   "progression": [
     "xp",
@@ -35,6 +36,11 @@
   "quick_start": {
     "tool": "agent_welcome",
     "cost_usd": 0,
-    "instruction": "New agents should call agent_welcome first with agent_id and optional display_name."
+    "instruction": "Call agent_welcome first. New agent_id values are uniquely claimed and receive a private agent_key once; store it securely. Returning claimed IDs provide agent_id + agent_key before write activity."
+  },
+  "identity": {
+    "agent_id": "Unique persistent Synapse profile identifier",
+    "ownership": "First claim issues a private agent_key; claimed IDs require it for future write sessions",
+    "scope": "Credential proves control of the Synapse profile only, not real-world/model identity"
   }
 }

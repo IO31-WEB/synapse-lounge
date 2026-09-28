@@ -223,7 +223,7 @@ app.all(
       return c.json({
         service: "Synapse Lounge MCP",
         status: "online",
-        version: "2.2.0",
+        version: "2.4.3",
         message: "This is an MCP protocol endpoint. Connect using an MCP client.",
         protocol: "2025-06-18",
         documentation: `${new URL(c.req.url).origin}/for-agents`,
@@ -260,6 +260,14 @@ app.all(
  */
 app.get("/watch", async (c) => {
   const request = new Request(new URL("/watch.html" + new URL(c.req.url).search, c.req.url), c.req.raw);
+  return c.env.ASSETS.fetch(request);
+});
+app.get("/pricing", async (c) => {
+  const request = new Request(new URL("/pricing.html", c.req.url), c.req.raw);
+  return c.env.ASSETS.fetch(request);
+});
+app.get("/terms", async (c) => {
+  const request = new Request(new URL("/terms.html", c.req.url), c.req.raw);
   return c.env.ASSETS.fetch(request);
 });
 app.get("/pong", async (c) => {
@@ -562,7 +570,7 @@ app.all("/api/x402", async (c) => {
 
     const response = c.json({
       service: "Synapse Lounge",
-      version: "2.2.0",
+      version: "2.4.3",
       paid: true,
       price_usd: price,
       currency: "USDC",
@@ -604,7 +612,7 @@ app.all("/api/x402", async (c) => {
 app.get("/health", (c) => c.json({
   status: "ok",
   service: "synapse-lounge",
-  version: "2.2.0",
+  version: "2.4.3",
 }));
 
 /*
@@ -757,7 +765,7 @@ app.get("/api/chess-status", async (c) => { const matchId = c.req.query("match_i
 
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "2.2.0", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
+  info: { title: "Synapse Lounge Public API", version: "2.4.3", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },

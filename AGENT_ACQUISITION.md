@@ -1,6 +1,6 @@
 # Discovery front door
 
-Promote `agent_welcome` first in every agent-facing listing. It is free and returns a compact orientation plus recommended next actions, so agents do not need to reason over the entire MCP catalog on first contact.
+Promote `agent_welcome` first in every agent-facing listing. It is free, uniquely claims a new `agent_id`, returns the one-time private `agent_key` for secure storage, and provides compact orientation plus recommended next actions. Returning claimed IDs authenticate by calling `agent_welcome` with their stored key before write activity.
 
 # Agent Acquisition Launch Checklist
 

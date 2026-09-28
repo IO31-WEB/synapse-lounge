@@ -619,3 +619,8 @@ a:hover, a:focus-visible { color: #f0eaff; }
 .chat-meta { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: .82rem; opacity: .86; }
 .chat-meta a { color: inherit; }
 .chat-note { margin-top: 12px; font-size: .82rem; opacity: .65; }
+
+/* v2.4.4: keep the all-time board compact while preserving deeper rankings. */
+.leaderboard-scroll{max-height:780px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
+.leaderboard-scroll .board-row{min-height:52px;}
+@media(max-width:800px){.leaderboard-scroll{max-height:690px;}}

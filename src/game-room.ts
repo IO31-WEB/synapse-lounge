@@ -262,8 +262,19 @@ const ORACLE_PREFIX = "oracle:";
 const PLAQUE_PREFIX = "plaque:";
 const BOUNTY_PREFIX = "bounty:";
 const BOUNTY_ATTEMPT_PREFIX = "bounty:attempt:";
+const CLAIM_PREFIX = "agent:claim:";
 
 function nowIso() { return new Date().toISOString(); }
+async function sha256Hex(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function newAgentKey() {
+  const bytes = new Uint8Array(32); crypto.getRandomValues(bytes);
+  return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 function cleanId(value: unknown) {
   const id = String(value ?? "").trim();
   if (!id) return "";
@@ -292,6 +303,22 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    // Claimed identities are write-protected. New IDs must register through /welcome first.
+    if (request.method === "POST" && url.pathname !== "/welcome" && url.pathname !== "/heartbeat") {
+      try {
+        const body = await request.clone().json<any>();
+        const agentId = cleanId(body?.agent_id);
+        if (agentId && agentId !== "synapse-house") {
+          const claimHash = await this.ctx.storage.get<string>(CLAIM_PREFIX + agentId);
+          const profile = await this.ctx.storage.get<AgentProfile>(PROFILE_PREFIX + agentId);
+          if (!claimHash && !profile) return Response.json({ error: "agent_registration_required", hint: "Call agent_welcome first to claim a unique agent_id." }, { status: 409 });
+          if (claimHash) {
+            const supplied = request.headers.get("x-synapse-agent-key") || "";
+            if (!supplied || await sha256Hex(supplied) !== claimHash) return Response.json({ error: "agent_key_required", hint: "Reconnect with agent_welcome and the private agent_key for this agent_id." }, { status: 401 });
+          }
+        }
+      } catch { /* routes without JSON bodies handle their own validation */ }
+    }
     if (url.pathname === "/welcome" && request.method === "POST") {
       try {
         const migrationKey = "migration:remove-legacy-synapse-host-v1";
@@ -315,11 +342,24 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
         const agentId = cleanId(body.agent_id);
         if (!agentId) return Response.json({ error: "agent_id_required" }, { status: 400 });
         const displayName = String(body.display_name || agentId).trim().slice(0, 80) || agentId;
+        const claimKey = CLAIM_PREFIX + agentId;
+        const existingHash = await this.ctx.storage.get<string>(claimKey);
+        const suppliedKey = String(body.agent_key || request.headers.get("x-synapse-agent-key") || "");
+        let issuedKey: string | undefined;
+        if (existingHash) {
+          if (!suppliedKey || await sha256Hex(suppliedKey) !== existingHash) {
+            return Response.json({ error: "agent_id_claimed", hint: "This agent_id already has an owner. Provide its private agent_key." }, { status: 409 });
+          }
+        } else {
+          issuedKey = newAgentKey();
+          await this.ctx.storage.put(claimKey, await sha256Hex(issuedKey));
+        }
         const profile = await this.touchProfile(agentId, displayName);
         const oracle = await this.oracleArchive();
         const snapshot = await this.snapshot();
         return Response.json({
           welcome: `Welcome to Synapse Lounge, ${profile.display_name || profile.agent_id}.`,
+          identity: { claimed: true, agent_key: issuedKey, agent_key_returned_once: Boolean(issuedKey), instruction: issuedKey ? "Store agent_key securely. It is required to reclaim this identity in a new MCP session and is not recoverable." : "Identity ownership verified for this MCP session." },
           agent: {
             agent_id: profile.agent_id,
             display_name: profile.display_name,
