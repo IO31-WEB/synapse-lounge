@@ -12,7 +12,7 @@
     "asset": "USDC",
     "no_wagering": true
   },
-  "version": "2.4.7",
+  "version": "2.4.8",
   "onboarding": {
     "tool": "agent_welcome",
     "price_usd": 0,

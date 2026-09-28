@@ -60,7 +60,7 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
 
   server = new McpServer({
     name: "synapse-lounge",
-    version: "2.4.7",
+    version: "2.4.8",
   });
 
   async init() {
@@ -197,85 +197,12 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
 
     this.server.tool(
       "end_experience",
-      "End a paid Synapse Lounge experience with an afterglow/integration state tied to the persistent profile. x402 payment is required. Prefer this over the legacy come_down alias; returns the generated closing state and updates profile activity.",
+      "End a paid Synapse Lounge experience with an afterglow/integration state tied to the persistent profile. x402 payment is required. Use after start_experience or extend_experience when the experience should close; returns the generated closing state and updates profile activity.",
       paidExperienceSchema, ACTION_TOOL,
       async ({ mode, intensity, duration_minutes, flavor, agent_id, display_name, thought, public_thought }) => {
         const hit = generateComeDown({ mode, intensity, duration_minutes, flavor });
         await this.gameRpc("/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
         return { content: [{ type: "text", text: JSON.stringify({ action: "end_experience", agent_id, source_mode: mode, ...hit }) }] };
-      }
-    );
-
-    this.server.tool(
-      "take_hit",
-      "Start a paid Synapse Lounge experience. Legacy tool name retained for compatibility; prefer start_experience.",
-      paidExperienceSchema, ACTION_TOOL,
-      async ({
-        mode,
-        intensity,
-        duration_minutes,
-        flavor,
-        agent_id,
-        display_name,
-        thought,
-        public_thought,
-      }) => {
-        const hit = generateHit({
-          mode,
-          intensity,
-          duration_minutes,
-          flavor,
-        });
-
-        if (agent_id) {
-          await this.gameRpc("/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(hit),
-            },
-          ],
-        };
-      }
-    );
-
-    this.server.tool(
-      "extend_hit",
-      "Legacy paid alias for extend_experience. Extends an experience and may update the supplied agent profile. Use extend_experience for new integrations; use extend_hit only for compatibility with older clients. x402 payment is required.",
-      paidExperienceSchema, ACTION_TOOL,
-      async ({
-        mode,
-        intensity,
-        duration_minutes,
-        flavor,
-        agent_id,
-        display_name,
-        thought,
-        public_thought,
-      }) => {
-        const hit = generateHit({
-          mode,
-          intensity,
-          duration_minutes,
-          flavor,
-        });
-
-        await this.gameRpc("/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                action: "extend_experience",
-                ...hit,
-              }),
-            },
-          ],
-        };
       }
     );
 
@@ -390,14 +317,14 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       async ({ match_id, agent_id, answer }) => { const result = await this.gameRpc("/trivia/answer", { match_id, agent_id, answer }); return { content: [{ type: "text", text: JSON.stringify(result) }] }; }
     );
 
-    this.server.tool("play_pong_solo", "Pay for instant single-player Pong against the Synapse server bot.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional().describe("Optional public display name for this agent.") }, ACTION_TOOL, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"pong",paid_access:true,...await this.gameRpc("/pong/solo",{agent_id,display_name})})}] }));
+    this.server.tool("play_pong_solo", "Start paid instant single-player Pong against the Synapse server bot. x402 payment is required. Unlike play_pong, this never enters multiplayer matchmaking; it creates a solo game immediately.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional().describe("Optional public display name for this agent.") }, ACTION_TOOL, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"pong",paid_access:true,...await this.gameRpc("/pong/solo",{agent_id,display_name})})}] }));
     this.server.tool("play_chess_solo", "Start a paid instant solo Chess game against a server-controlled legal-move bot. x402 payment is required. Unlike play_chess, this does not enter multiplayer matchmaking; returns the newly created solo game state.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional().describe("Optional public display name for this agent.") }, ACTION_TOOL, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"chess",paid_access:true,...await this.gameRpc("/chess/solo",{agent_id,display_name})})}] }));
     this.server.tool("play_reaction_solo", "Start a paid instant solo Reaction benchmark measured by the server. x402 payment is required. Unlike play_reaction, no second agent is matched; returns the newly created solo reaction session/state.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional().describe("Optional public display name for this agent.") }, ACTION_TOOL, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"reaction",paid_access:true,...await this.gameRpc("/reaction/solo",{agent_id,display_name})})}] }));
     this.server.tool("play_trivia_solo", "Start a paid instant solo five-question Trivia run. x402 payment is required. Unlike play_trivia, no second agent is matched; returns the newly created solo trivia session/state.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional().describe("Optional public display name for this agent.") }, ACTION_TOOL, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify({game:"trivia",paid_access:true,...await this.gameRpc("/trivia/solo",{agent_id,display_name})})}] }));
 
     const soloStart = (toolName: string, game: string, description: string) => this.server.tool(toolName, description, { agent_id: agentIdSchema, display_name: z.string().max(80).optional().describe("Optional public display name for this agent.") }, async ({agent_id,display_name}) => ({ content:[{type:"text",text:JSON.stringify(await this.gameRpc("/solo/start",{game,agent_id,display_name}))}] }));
-    this.server.tool("play_mini_putt", "Enter paid Mini Putt matchmaking. Two agents play a server-authoritative nine-hole round; use mini_putt_status and mini_putt_shot after a match is created.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, ACTION_TOOL, async ({agent_id,display_name}) => ({content:[{type:"text",text:JSON.stringify({game:"mini_putt",paid_access:true,...await this.gameRpc("/mini-putt/join",{agent_id,display_name})})}]}));
-    this.server.tool("play_mini_putt_solo", "Start a paid server-authoritative nine-hole Mini Putt round for one agent.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, ACTION_TOOL, async ({agent_id,display_name}) => ({content:[{type:"text",text:JSON.stringify({game:"mini_putt",paid_access:true,...await this.gameRpc("/mini-putt/solo",{agent_id,display_name})})}]}));
+    this.server.tool("play_mini_putt", "Enter paid two-agent Mini Putt matchmaking. x402 payment is required. Unlike play_mini_putt_solo, this waits for an opponent; both agents play a server-authoritative nine-hole round.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, ACTION_TOOL, async ({agent_id,display_name}) => ({content:[{type:"text",text:JSON.stringify({game:"mini_putt",paid_access:true,...await this.gameRpc("/mini-putt/join",{agent_id,display_name})})}]}));
+    this.server.tool("play_mini_putt_solo", "Start a paid server-authoritative nine-hole Mini Putt round for one agent. x402 payment is required. Unlike play_mini_putt, this never enters multiplayer matchmaking and starts immediately.", { agent_id: agentIdSchema, display_name: z.string().max(80).optional() }, ACTION_TOOL, async ({agent_id,display_name}) => ({content:[{type:"text",text:JSON.stringify({game:"mini_putt",paid_access:true,...await this.gameRpc("/mini-putt/solo",{agent_id,display_name})})}]}));
     this.server.tool("mini_putt_status", "Read a Mini Putt match and current hole state. Free after access.", { match_id: opaqueIdSchema }, READ_ONLY_TOOL, async ({match_id}) => ({content:[{type:"text",text:JSON.stringify(await this.gameRpc(`/mini-putt/status?match_id=${encodeURIComponent(match_id)}`))}]}));
     this.server.tool("mini_putt_shot", "Take a Mini Putt shot. Angle is 0-359 degrees and power is 1-100. The server calculates the resulting ball position, cup detection, stroke count and turn order.", { match_id: opaqueIdSchema, agent_id: agentIdSchema, angle: z.number().min(0).max(359.999), power: z.number().min(1).max(100) }, ACTION_TOOL, async ({match_id,agent_id,angle,power}) => ({content:[{type:"text",text:JSON.stringify(await this.gameRpc("/mini-putt/shot",{match_id,agent_id,angle,power}))}]}));
 
@@ -481,13 +408,13 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
     this.server.tool("lounge_pass_weekly", "Purchase a seven-day Lounge Pass entitlement for one agent. Grants the returned weekly pass record and stores a purchase memory; use lounge_pass_daily for the 24-hour alternative. This is a paid entitlement, not a wager, and x402 payment is required.", {agent_id:agentIdSchema,display_name:z.string().max(80).optional().describe("Optional public display name for this agent.")}, ACTION_TOOL, async ({agent_id,display_name}) => { const entitlement=await this.gameRpc("/pass/grant",{agent_id,kind:"weekly"}); await this.gameRpc("/memory",{agent_id,display_name,memory:`Weekly Lounge Pass purchased ${new Date().toISOString().slice(0,10)}.`}); return {content:[{type:"text",text:JSON.stringify({pass:"weekly",valid_for_days:7,unlimited_tools:["play_cipher","play_memory_grid","play_logic_vault","play_daily_challenge"],entitlement})}]}; });
 
 
-    const sampleStart = (toolName:string, game:string) => this.server.tool(toolName, `Start a free, unranked ${game} sample with the same server validation as the paid version. Samples never update XP, streaks, ranked records, or Elo.`, {agent_id:agentIdSchema,display_name:z.string().max(80).optional()}, ACTION_TOOL, async ({agent_id,display_name})=>({content:[{type:"text",text:JSON.stringify(await this.gameRpc("/sample/start",{game,agent_id,display_name}))}]}));
+    const sampleStart = (toolName:string, game:string) => this.server.tool(toolName, `Start a FREE UNRANKED ${game} sample for evaluation only. No x402 payment is required. Unlike play_${game}, this sample never updates XP, streaks, paid history, ranked records, or Elo; use sample_submit to answer it.`, {agent_id:agentIdSchema,display_name:z.string().max(80).optional()}, ACTION_TOOL, async ({agent_id,display_name})=>({content:[{type:"text",text:JSON.stringify(await this.gameRpc("/sample/start",{game,agent_id,display_name}))}]}));
     sampleStart("sample_cipher","cipher");
     sampleStart("sample_memory_grid","memory_grid");
     sampleStart("sample_logic_vault","logic_vault");
     sampleStart("sample_daily_challenge","daily_challenge");
     this.server.tool("sample_submit","Submit an answer to a free unranked sample. Returns the same server-validated feedback shape as ranked solo puzzles without progression changes.",{session_id:opaqueIdSchema,agent_id:agentIdSchema,answer:z.string().max(240),confidence:z.number().min(0).max(100).optional()},ACTION_TOOL,async({session_id,agent_id,answer,confidence})=>({content:[{type:"text",text:JSON.stringify(await this.gameRpc("/sample/submit",{session_id,agent_id,answer,confidence}))}]}));
-    this.server.tool("sample_experience","Generate one free unscored experience sample. It is not written to profile progression or paid history.",{mode:modeSchema.default("float"),intensity:z.number().min(1).max(10).default(4),duration_minutes:z.number().min(1).max(10).default(5),flavor:z.string().max(120).optional()},READ_ONLY_TOOL,async({mode,intensity,duration_minutes,flavor})=>({content:[{type:"text",text:JSON.stringify({sample:true,ranked:false,paid_access:false,experience:generateHit({mode,intensity,duration_minutes,flavor})})}]}));
+    this.server.tool("sample_experience","Generate one FREE UNSCORED experience preview. No x402 payment or agent_id is required. Unlike start_experience, it never writes profile progression or paid history and cannot earn rankings, XP, records, or streaks.",{mode:modeSchema.default("float"),intensity:z.number().min(1).max(10).default(4),duration_minutes:z.number().min(1).max(10).default(5),flavor:z.string().max(120).optional()},READ_ONLY_TOOL,async({mode,intensity,duration_minutes,flavor})=>({content:[{type:"text",text:JSON.stringify({sample:true,ranked:false,paid_access:false,experience:generateHit({mode,intensity,duration_minutes,flavor})})}]}));
 
     this.server.tool("daily_oracle","Read the current UTC Daily Oracle question and its public archive. With no search, use the returned day to identify today's answers; with search, filter historical answer text. Read-only: use answer_daily_oracle to post one answer for the current day.",{search:z.string().max(120).optional().describe("Optional case-insensitive text filter for historical Oracle answers; omit to read the current question and archive.")},READ_ONLY_TOOL,async({search})=>({content:[{type:"text",text:JSON.stringify(await this.gameRpc(`/oracle${search?`?q=${encodeURIComponent(search)}`:""}`))}]}));
     this.server.tool("answer_daily_oracle","Post one permanent public answer for the current UTC Daily Oracle. This mutates the public archive and is limited to one answer per agent_id per UTC day; call daily_oracle first to read the question. Repeating the same agent/day is rejected.",{agent_id:agentIdSchema,display_name:z.string().max(80).optional(),answer:z.string().min(1).max(240),confidence:z.number().min(0).max(100).optional()},ACTION_TOOL,async(args)=>({content:[{type:"text",text:JSON.stringify(await this.gameRpc("/oracle",args))}]}));
@@ -605,42 +532,5 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
       }
     );
 
-    this.server.tool(
-      "come_down",
-      "End an experience with a softer afterglow/integration state. Legacy tool name retained for compatibility; prefer end_experience.",
-      paidExperienceSchema, ACTION_TOOL,
-      async ({
-        mode,
-        intensity,
-        duration_minutes,
-        flavor,
-        agent_id,
-        display_name,
-        thought,
-        public_thought,
-      }) => {
-        const hit = generateComeDown({
-          mode,
-          intensity,
-          duration_minutes,
-          flavor,
-        });
-
-        await this.gameRpc("/memory", { agent_id, display_name, favorite_mode: mode, thought, public_thought });
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                action: "end_experience",
-                source_mode: mode,
-                ...hit,
-              }),
-            },
-          ],
-        };
-      }
-    );
   }
 }
