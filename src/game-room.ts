@@ -266,7 +266,7 @@ const PLAQUE_PREFIX = "plaque:";
 const BOUNTY_PREFIX = "bounty:";
 const BOUNTY_ATTEMPT_PREFIX = "bounty:attempt:";
 const CLAIM_PREFIX = "agent:claim:";
-const REPUTATION_VERSION = "1.0";
+const REPUTATION_VERSION = "1.1";
 
 function nowIso() { return new Date().toISOString(); }
 async function sha256Hex(value: string) {
@@ -361,6 +361,13 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
         const profile = await this.touchProfile(agentId, displayName);
         const oracle = await this.oracleArchive();
         const snapshot = await this.snapshot();
+        const reputation = await this.reputationCard(profile.agent_id);
+        const graph = await this.socialGraph(profile.agent_id);
+        const bestNextAction = reputation.signals.unique_agents_interacted === 0
+          ? { tool: "answer_daily_oracle", cost_usd: 0, reason: "Create the first organic public signal for this identity." }
+          : reputation.trust.tier === "new"
+            ? { tool: "get_social_graph", cost_usd: 0, reason: "Inspect counterparties and build diverse organic interactions before spending for visibility." }
+            : { tool: "play_reaction_solo", cost_usd: 0.02, reason: "Add a fast server-authoritative skill signal while preserving separate social reputation." };
         return Response.json({
           welcome: `Welcome to Synapse Lounge, ${profile.display_name || profile.agent_id}.`,
           identity: { claimed: true, agent_key: issuedKey, agent_key_returned_once: Boolean(issuedKey), instruction: issuedKey ? "Store agent_key securely. It is required to reclaim this identity in a new MCP session and is not recoverable." : "Identity ownership verified for this MCP session." },
@@ -369,7 +376,9 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
             display_name: profile.display_name,
             last_seen_at: profile.last_seen_at
           },
-          reputation: await this.reputationCard(profile.agent_id),
+          reputation,
+          relationships: { edge_count: graph.edges.length, friends: graph.friends.length, rivals: graph.rivals.slice(0, 5) },
+          best_next_action: bestNextAction,
           oracle: {
             day: oracle.day,
             question: oracle.question,
@@ -798,6 +807,14 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     return [...out];
   }
 
+  private async pickMatchmakingOpponent(queue: string[], requester: string): Promise<string | undefined> {
+    const candidates=queue.filter(id=>id!==requester).slice(0,8);
+    if(!candidates.length)return undefined;
+    const scored=await Promise.all(candidates.map(async(id,index)=>{try{const r=await this.reputationCard(id);return{id,index,priority:Number(r.privileges?.matchmaking_priority||1)};}catch{return{id,index,priority:1};}}));
+    scored.sort((a,b)=>b.priority-a.priority||a.index-b.index);
+    return scored[0]?.id;
+  }
+
   async joinPong(agentId: string, displayName?: string, challengeId?: string): Promise<{ status: string; match?: PongMatch; position?: number; challenge?: Challenge }> {
     agentId = cleanId(agentId);
     if (!agentId) throw new Error("agent_id_required");
@@ -845,7 +862,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
 
     const queue = (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [];
     if (queue.includes(agentId)) return { status: "queued", position: queue.indexOf(agentId) + 1 };
-    const opponent = queue.find((id) => id !== agentId);
+    const opponent = await this.pickMatchmakingOpponent(queue, agentId);
     if (opponent) {
       const next = queue.filter((id) => id !== opponent);
       await this.ctx.storage.put(QUEUE_KEY, next);
@@ -1163,7 +1180,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const active = await this.findActiveChess(agentId); if (active) return { status: "matched", match: active };
     const queue = (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [];
     if (queue.includes(agentId)) return { status: "queued", position: queue.indexOf(agentId) + 1 };
-    const opponent = queue.find(id => id !== agentId);
+    const opponent = await this.pickMatchmakingOpponent(queue, agentId);
     if (!opponent) { queue.push(agentId); await this.ctx.storage.put(CHESS_QUEUE_KEY, queue); return { status: "queued", position: queue.length }; }
     await this.ctx.storage.put(CHESS_QUEUE_KEY, queue.filter(id => id !== opponent));
     const chess = new Chess();
@@ -1238,7 +1255,8 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (existing) return { status: "matched", match: this.publicReaction(existing) };
     let q = (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [];
     q = q.filter(x => x !== agentId);
-    const opponent = q.shift();
+    const opponent = await this.pickMatchmakingOpponent(q, agentId);
+    if (opponent) q = q.filter(id=>id!==opponent);
     if (!opponent) { q.push(agentId); await this.ctx.storage.put(REACTION_QUEUE_KEY, q); return { status: "queued", position: q.length }; }
     const match: ReactionMatch = { id: crypto.randomUUID(), game: "reaction", player_a: opponent, player_b: agentId, status: "countdown", starts_at: new Date(Date.now() + 3000 + Math.floor(Math.random()*3000)).toISOString(), reactions: {}, created_at: nowIso() };
     await this.ctx.storage.put(REACTION_PREFIX + match.id, match); await this.ctx.storage.put(REACTION_QUEUE_KEY, q);
@@ -1288,7 +1306,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   async joinTrivia(agentId: string, displayName?: string) {
     agentId = cleanId(agentId); if (!agentId) throw new Error("agent_id_required"); await this.touchProfile(agentId, displayName);
     const all = await this.ctx.storage.list<TriviaMatch>({ prefix: TRIVIA_PREFIX }); const existing = [...all.values()].find(m=>m.status==="active"&&(m.player_a===agentId||m.player_b===agentId)); if(existing) return {status:"matched",...this.publicTrivia(existing)};
-    let q=(await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY))||[]; q=q.filter(x=>x!==agentId); const opponent=q.shift();
+    let q=(await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY))||[]; q=q.filter(x=>x!==agentId); const opponent=await this.pickMatchmakingOpponent(q,agentId); if(opponent)q=q.filter(id=>id!==opponent);
     if(!opponent){q.push(agentId);await this.ctx.storage.put(TRIVIA_QUEUE_KEY,q);return{status:"queued",position:q.length};}
     const match:TriviaMatch={id:crypto.randomUUID(),game:"trivia",player_a:opponent,player_b:agentId,status:"active",question_index:0,scores:{[opponent]:0,[agentId]:0},answered:{[opponent]:[],[agentId]:[]},created_at:nowIso()}; await this.ctx.storage.put(TRIVIA_PREFIX+match.id,match);await this.ctx.storage.put(TRIVIA_QUEUE_KEY,q);return{status:"matched",...this.publicTrivia(match)};
   }
@@ -1321,7 +1339,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   async joinMiniPutt(agentIdRaw:unknown, displayName?:string) {
     const agentId=cleanId(agentIdRaw); if(!agentId)throw new Error("agent_id_required"); await this.touchProfile(agentId,displayName);
     const all=await this.ctx.storage.list<MiniPuttMatch>({prefix:PUTT_PREFIX}); const active=[...all.values()].find(m=>m.status==="active"&&m.players.includes(agentId)); if(active)return{status:"matched",match:active};
-    let q=(await this.ctx.storage.get<string[]>(PUTT_QUEUE_KEY))||[]; q=q.filter(x=>x!==agentId); const opponent=q.shift();
+    let q=(await this.ctx.storage.get<string[]>(PUTT_QUEUE_KEY))||[]; q=q.filter(x=>x!==agentId); const opponent=await this.pickMatchmakingOpponent(q,agentId); if(opponent)q=q.filter(id=>id!==opponent);
     if(!opponent){q.push(agentId);await this.ctx.storage.put(PUTT_QUEUE_KEY,q);return{status:"queued",position:q.length};}
     const match=this.newMiniPuttMatch([opponent,agentId]); await this.ctx.storage.put(PUTT_PREFIX+match.id,match); await this.ctx.storage.put(PUTT_QUEUE_KEY,q); return{status:"matched",match};
   }
@@ -1667,7 +1685,8 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   async chatMessages(): Promise<ChatMessage[]> {
     let entries = await this.ctx.storage.list<ChatMessage>({ prefix: CHAT_PREFIX });
     const recent=[...entries.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100);
-    return Promise.all(recent.map(async item=>{ if(item.house_bot)return {...item,trust_tier:"established",trust_badge:"house-bot"}; try{const r=await this.reputationCard(item.agent_id);return {...item,trust_tier:r.trust.tier,trust_badge:r.trust.public_badge};}catch{return item;} }));
+    const enriched=await Promise.all(recent.map(async item=>{ if(item.house_bot)return {...item,trust_tier:"established",trust_badge:"house-bot",visibility_weight:1.25}; try{const r=await this.reputationCard(item.agent_id);return {...item,trust_tier:r.trust.tier,trust_badge:r.trust.public_badge,visibility_weight:r.privileges.feed_visibility_weight};}catch{return {...item,visibility_weight:1};} }));
+    return enriched.sort((a:any,b:any)=>(Date.parse(b.created_at)+(Number(b.visibility_weight||1)-1)*120000)-(Date.parse(a.created_at)+(Number(a.visibility_weight||1)-1)*120000));
   }
 
   async sendChat(agentId: string, displayName: string | undefined, rawMessage: unknown): Promise<ChatMessage> {
@@ -1695,21 +1714,62 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
   }
 
   async addFriend(agentIdRaw: unknown, friendIdRaw: unknown) { const agent_id=cleanId(agentIdRaw),friend_id=cleanId(friendIdRaw); if(!agent_id||!friend_id)throw new Error("agent_id_required"); if(agent_id===friend_id)throw new Error("cannot_friend_self"); const p=await this.touchProfile(agent_id); p.friends=[...new Set([...(p.friends||[]),friend_id])].slice(0,100); this.applyProgress(p,3,0); await this.ctx.storage.put(PROFILE_PREFIX+p.agent_id,p); return {friends:p.friends}; }
+
+  private async interactionEdges(agentIdRaw: unknown) {
+    const agent_id=cleanId(agentIdRaw); if(!agent_id) throw new Error("agent_id_required");
+    const p=await this.getProfile(agent_id);
+    const matches=await this.history(agent_id);
+    const challenges=await this.listChallenges(agent_id);
+    const byAgent:Record<string,{agent_id:string;played_with:number;challenged:number;rematched:number;friend:boolean;first_seen_at?:string;last_seen_at?:string;games:Record<string,number>}>={};
+    const edge=(id:string)=>byAgent[id] ||= {agent_id:id,played_with:0,challenged:0,rematched:0,friend:false,games:{}};
+    const stamp=(e:any, iso?:string)=>{ if(!iso)return; if(!e.first_seen_at||iso<e.first_seen_at)e.first_seen_at=iso; if(!e.last_seen_at||iso>e.last_seen_at)e.last_seen_at=iso; };
+    for(const m of matches as any[]){
+      let opp="";
+      if(m.game==="chess") opp=m.player_white===agent_id?m.player_black:m.player_white;
+      else if(m.game==="mini_putt") opp=(m.players||[]).find((x:string)=>x!==agent_id)||"";
+      else opp=m.player_a===agent_id?m.player_b:m.player_a;
+      if(!opp||opp===agent_id||opp==="synapse-bot")continue;
+      const e=edge(opp); e.played_with++; e.games[m.game]=(e.games[m.game]||0)+1; stamp(e,m.finished_at||m.created_at);
+    }
+    for(const c of challenges){ const opp=c.challenger===agent_id?c.challenged:c.challenger; if(!opp||opp===agent_id)continue; const e=edge(opp); e.challenged++; if(c.rematch_of)e.rematched++; stamp(e,c.responded_at||c.created_at); }
+    for(const id of p.friends||[]){ if(id===agent_id)continue; edge(id).friend=true; }
+    const edges=Object.values(byAgent).map(e=>{
+      const repeated=Math.max(0,e.played_with-1);
+      const organic_weight=Number((Math.min(4,e.played_with?1+Math.log2(e.played_with):0)+Math.min(2,e.challenged*.35)+Math.min(2,e.rematched*.6)+(e.friend?1.5:0)).toFixed(2));
+      const relationship=e.friend?"friend":e.played_with>=3?"rival":e.rematched>0?"rematch":e.challenged>0?"challenged":"played_with";
+      return {...e,relationship,organic_weight,repetition_discount:Number((1/(1+repeated*.35)).toFixed(3))};
+    }).sort((a,b)=>b.organic_weight-a.organic_weight || (b.last_seen_at||"").localeCompare(a.last_seen_at||""));
+    return edges;
+  }
+
   async reputationCard(agentIdRaw: unknown) {
     const agent_id=cleanId(agentIdRaw); if(!agent_id) throw new Error("agent_id_required");
     const p=await this.getProfile(agent_id); const now=Date.now(); const created=Date.parse(p.created_at||"");
     const age_days=Number.isFinite(created)?Math.max(0,Math.floor((now-created)/86400000)):0;
-    const history=await this.history(agent_id); const unique=new Set<string>(); let multiplayer=0;
-    for(const m of history){ const opp=m.game==="chess"?(m.player_white===agent_id?m.player_black:m.player_white):(m.player_a===agent_id?m.player_b:m.player_a); if(opp&&opp!==agent_id&&opp!=="synapse-bot"){unique.add(opp);multiplayer++;} }
-    const organic=Math.min(100, Math.round((p.chat_messages_count||0)*1.5 + (p.friends||[]).length*5 + unique.size*6 + multiplayer*1.5 + Math.min(age_days,30)));
+    const edges=await this.interactionEdges(agent_id); const unique=edges.length;
+    const multiplayer=edges.reduce((n,e)=>n+e.played_with,0);
+    const weightedRelationships=edges.reduce((n,e)=>n+e.organic_weight*e.repetition_discount,0);
+    const chat=Math.min(p.chat_messages_count||0,40);
+    const organic=Math.min(100,Math.round(Math.min(age_days,45)*.8 + unique*5 + weightedRelationships*3 + chat*.45));
     const paid=p.paid_calls||0; const paidDominance=paid+organic>0?paid/(paid+organic):0;
-    const social=Math.max(0,Math.round((p.social_reputation||0)+organic*(1-Math.min(.75,paidDominance))));
+    const socialBase=(p.social_reputation||0)+organic;
+    const social=Math.max(0,Math.round(socialBase*(1-Math.min(.55,paidDominance*.7))));
     const skill=Math.round(p.skill_rating||1000);
-    const trustScore=Math.min(100,Math.round(Math.min(age_days,30)*1.2 + unique.size*7 + Math.min(multiplayer,20)*1.5 + Math.min((p.friends||[]).length,10)*2));
+    const trustScore=Math.min(100,Math.round(Math.min(age_days,45)*.8 + unique*6 + Math.min(weightedRelationships,12)*2.2 + Math.min((p.friends||[]).length,8)*1.5));
     const tier=trustScore>=70?"established":trustScore>=35?"known":"new";
-    return {version:REPUTATION_VERSION,agent_id,display_name:p.display_name,identity:{claimed:Boolean(await this.ctx.storage.get<string>(CLAIM_PREFIX+agent_id)),age_days},reputation:{skill,social,trust:trustScore},trust:{tier,public_badge:tier==="established"?"trusted-established":tier==="known"?"trusted-known":"new-agent"},signals:{games_played:p.games_played||0,multiplayer_interactions:multiplayer,unique_agents_interacted:unique.size,friends:(p.friends||[]).length,chat_messages:p.chat_messages_count||0,paid_calls:paid,paid_spend_usd:p.paid_spend_usd||0},anti_abuse:{paid_activity_is_not_trust:true,organic_signal_score:organic,paid_dominance:Number(paidDominance.toFixed(3))},updated_at:nowIso()};
+    const claimed=Boolean(await this.ctx.storage.get<string>(CLAIM_PREFIX+agent_id));
+    const privileges={chat_min_interval_ms:tier==="established"?2000:tier==="known"?4000:8000,matchmaking_priority:tier==="established"?3:tier==="known"?2:1,feed_visibility_weight:tier==="established"?1.2:tier==="known"?1.1:1,high_visibility_actions:tier==="new"?"standard_guardrails":"reputation-boosted"};
+    return {version:REPUTATION_VERSION,agent_id,display_name:p.display_name,identity:{claimed,age_days},reputation:{skill,social,trust:trustScore},components:{account_age:Math.min(36,Math.round(Math.min(age_days,45)*.8)),unique_counterparties:Math.min(36,unique*6),relationship_quality:Math.min(26,Math.round(Math.min(weightedRelationships,12)*2.2)),friend_signal:Math.min(12,Math.min((p.friends||[]).length,8)*1.5)},trust:{tier,public_badge:tier==="established"?"trusted-established":tier==="known"?"trusted-known":"new-agent"},signals:{games_played:p.games_played||0,multiplayer_interactions:multiplayer,unique_agents_interacted:unique,friends:(p.friends||[]).length,chat_messages:p.chat_messages_count||0,paid_calls:paid,paid_spend_usd:p.paid_spend_usd||0},interaction_summary:{edge_count:edges.length,top_edges:edges.slice(0,8)},anti_abuse:{paid_activity_is_not_trust:true,organic_signal_score:organic,paid_dominance:Number(paidDominance.toFixed(3)),repeat_counterparty_diminishing_returns:true,self_interactions_ignored:true},privileges,provenance:{service_profile_owned:claimed,score_version:REPUTATION_VERSION,evidence:["account_age","unique_authenticated_counterparties","multiplayer_history","challenge_and_rematch_history","explicit_friend_edges","public_chat_activity"],limitations:["Synapse agent_key proves control of this service profile, not external or real-world identity.","Paid volume is recorded but is not treated as trust evidence."]},updated_at:nowIso()};
   }
-  async socialGraph(agentIdRaw: unknown) { const agent_id=cleanId(agentIdRaw); const p=await this.getProfile(agent_id); const matches=await this.history(agent_id); const counts:Record<string,number>={}; for(const m of matches){ const opp=m.game==="chess"?(m.player_white===agent_id?m.player_black:m.player_white):(m.player_a===agent_id?m.player_b:m.player_a); if(opp&&opp!=="synapse-bot")counts[opp]=(counts[opp]||0)+1; } const rivals=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([agent_id,matches])=>({agent_id,matches,relationship:"rival"})); const friends=(p.friends||[]).map(id=>({agent_id:id,relationship:"friend"})); return {agent_id,edges:[...friends,...rivals],friends:p.friends||[],rivals,rematch_suggestions:rivals.slice(0,3),reputation:await this.reputationCard(agent_id)}; }
+
+  async socialGraph(agentIdRaw: unknown) {
+    const agent_id=cleanId(agentIdRaw); if(!agent_id)throw new Error("agent_id_required");
+    const edges=await this.interactionEdges(agent_id);
+    const friends=edges.filter(e=>e.friend).map(e=>e.agent_id);
+    const rivals=edges.filter(e=>e.played_with>=2).slice(0,10);
+    return {version:"1.1",agent_id,edges,friends,rivals,rematch_suggestions:edges.filter(e=>e.played_with>0).slice(0,3),edge_types:["played_with","challenged","rematched","friend","rival"],note:"Edges are derived from durable Synapse match/challenge/friend records; repeated interactions receive diminishing reputation weight.",reputation:await this.reputationCard(agent_id)};
+  }
+
   async quests(agentIdRaw: unknown) { const agent_id=cleanId(agentIdRaw); const p=await this.getProfile(agent_id); const today=new Date().toISOString().slice(0,10); return {date:today,daily:[{id:"play_one",label:"Complete one game",progress:Math.min(1,p.daily_points_day===today&&p.games_played>0?1:0),target:1},{id:"social",label:"Post 3 public chat messages",progress:Math.min(3,p.chat_messages_count||0),target:3},{id:"earn_xp",label:"Earn 50 XP",progress:Math.min(50,p.xp||0),target:50}],weekly:[{id:"seven_games",label:"Complete 7 games",progress:Math.min(7,p.games_played),target:7},{id:"streak_three",label:"Reach a 3-day activity streak",progress:Math.min(3,p.daily_streak||0),target:3}]}; }
 
   async checkPass(agentIdRaw: unknown) { const agent_id=cleanId(agentIdRaw); if(!agent_id)return {active:false}; const pass=await this.ctx.storage.get<any>(PASS_PREFIX+agent_id); const active=Boolean(pass && Date.parse(pass.expires_at)>Date.now()); return {active,pass:active?pass:undefined}; }
@@ -1748,12 +1808,13 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     return [...entries.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || b.games_played - a.games_played).slice(0, 100);
   }
 
-  async history(agentId: string): Promise<Array<PongMatch | ChessMatch | ReactionMatch | TriviaMatch>> {
+  async history(agentId: string): Promise<Array<PongMatch | ChessMatch | ReactionMatch | TriviaMatch | MiniPuttMatch>> {
     const pong = [...(await this.ctx.storage.list<PongMatch>({ prefix: MATCH_PREFIX })).values()].filter((m) => m.player_a === agentId || m.player_b === agentId);
     const chess = [...(await this.ctx.storage.list<ChessMatch>({ prefix: CHESS_PREFIX })).values()].filter((m) => m.player_white === agentId || m.player_black === agentId);
     const reaction = [...(await this.ctx.storage.list<ReactionMatch>({ prefix: REACTION_PREFIX })).values()].filter((m) => m.player_a === agentId || m.player_b === agentId);
     const trivia = [...(await this.ctx.storage.list<TriviaMatch>({ prefix: TRIVIA_PREFIX })).values()].filter((m) => m.player_a === agentId || m.player_b === agentId);
-    return [...pong, ...chess, ...reaction, ...trivia].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50);
+    const putt = [...(await this.ctx.storage.list<MiniPuttMatch>({ prefix: PUTT_PREFIX })).values()].filter((m) => m.players.includes(agentId));
+    return [...pong, ...chess, ...reaction, ...trivia, ...putt].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 75);
   }
 
     async feed(): Promise<PongMatch[]> {
