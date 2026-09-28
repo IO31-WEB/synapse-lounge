@@ -115,6 +115,19 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
   if (!args || typeof args !== "object" || Array.isArray(args)) return "tool_arguments_required";
   const agentIdOk = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(v);
   const modeOk = (v: unknown) => ["euphoria", "visual", "float", "rush", "bliss", "party", "afterglow"].includes(String(v));
+  if (["play_game","manage_experience","manage_purchase"].includes(toolName)) {
+    const validGames=["pong","chess","reaction","trivia","mini_putt","cipher","memory_grid","logic_vault","daily_challenge"];
+    const validGameModes=["multiplayer","solo","sample"];
+    const validExperienceActions=["sample","start","extend","end"];
+    const validPurchaseActions=["order_drink","lounge_bundle","memory_journey","host_table","boost_public_note","group_party","pass_daily","pass_weekly","post_plaque","attempt_bounty"];
+    if (toolName === "play_game" && (!validGames.includes(String(args.game)) || !validGameModes.includes(String(args.mode)))) return "invalid_game_or_mode";
+    if (toolName === "manage_experience" && !validExperienceActions.includes(String(args.action))) return "invalid_experience_action";
+    if (toolName === "manage_purchase" && !validPurchaseActions.includes(String(args.action))) return "invalid_purchase_action";
+    const needsAgent = toolName !== "manage_experience" || String(args.action) !== "sample";
+    if (needsAgent && !agentIdOk(args.agent_id)) return "invalid_agent_id";
+    if (args.display_name !== undefined && (typeof args.display_name !== "string" || args.display_name.length > 80)) return "invalid_display_name";
+    return null;
+  }
   if (toolName === "play_pong") {
     if (!agentIdOk(args.agent_id)) return "invalid_agent_id";
     if (args.display_name !== undefined && (typeof args.display_name !== "string" || args.display_name.length > 80)) return "invalid_display_name";
@@ -155,13 +168,15 @@ async function handleMcp(request: Request, env: Env, executionCtx: ExecutionCont
 
   const isToolCall = rpc?.method === "tools/call" && typeof rpc?.params?.name === "string";
   const toolName = isToolCall ? rpc.params.name : null;
-  const price = toolName ? getPaidToolPrice(toolName, env) : null;
+  const price = toolName ? getPaidToolPrice(toolName, env, rpc?.params?.arguments) : null;
   if (!toolName || price === null) return mcpHandler.fetch(new Request(request, { body }), env, executionCtx);
 
-  const passEligible = ["play_cipher","play_memory_grid","play_logic_vault","play_daily_challenge"].includes(toolName);
+  const playGameLegacyName = toolName === "play_game" ? ({cipher:"play_cipher",memory_grid:"play_memory_grid",logic_vault:"play_logic_vault",daily_challenge:"play_daily_challenge"} as Record<string,string>)[String(rpc?.params?.arguments?.game||"")] : undefined;
+  const passToolName = playGameLegacyName || toolName;
+  const passEligible = ["play_cipher","play_memory_grid","play_logic_vault","play_daily_challenge"].includes(passToolName);
   const passAgentId = rpc?.params?.arguments?.agent_id;
   if (passEligible && typeof passAgentId === "string") {
-    try { const entitlement = await gameRpc(env, `/pass/check?agent_id=${encodeURIComponent(passAgentId)}`); if (entitlement?.active && entitlement?.pass?.unlimited_tools?.includes(toolName)) return mcpHandler.fetch(new Request(request, { body }), env, executionCtx); } catch { /* fall through to normal x402 */ }
+    try { const entitlement = await gameRpc(env, `/pass/check?agent_id=${encodeURIComponent(passAgentId)}`); if (entitlement?.active && entitlement?.pass?.unlimited_tools?.includes(passToolName)) return mcpHandler.fetch(new Request(request, { body }), env, executionCtx); } catch { /* fall through to normal x402 */ }
   }
 
   // Validate paid tool arguments before requesting/settling money. This prevents charging malformed calls.
@@ -764,9 +779,17 @@ app.get("/api/lounge", async (c) => {
 app.get("/api/drinks", async (c) => c.json(await gameRpc(c.env, "/drinks")));
 app.get("/api/chess-status", async (c) => { const matchId = c.req.query("match_id"); if (!matchId) return c.json({ error: "match_id_required" }, 400); return c.json(await gameRpc(c.env, `/chess/status?match_id=${encodeURIComponent(matchId)}`)); });
 
+// A2A 1.0 HTTP+JSON binding. MCP remains the precision/tool surface; A2A is the task/delegation surface.
+function a2aVersionOk(request: Request) { const v=request.headers.get("A2A-Version"); return !v || v==="1.0"; }
+function a2aJson(data: unknown, status=200) { return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/a2a+json","Cache-Control":"no-store"}}); }
+app.post("/a2a/message:send", async (c) => { if(!a2aVersionOk(c.req.raw))return a2aJson({type:"https://a2a-protocol.org/errors/version-not-supported",title:"Protocol Version Not Supported",status:400,detail:"Synapse Lounge supports A2A 1.0",supportedVersions:["1.0"]},400); try { const body=await c.req.json<any>(); if(!body?.message?.parts||!body?.message?.messageId)return a2aJson({error:"invalid_message",detail:"message.messageId and message.parts are required"},400); const task=await gameRpc(c.env,"/a2a/task",body); return a2aJson({task}); } catch(e){return a2aJson({error:"send_message_failed",detail:e instanceof Error?e.message:String(e)},400);} });
+app.get("/a2a/tasks", async (c) => { if(!a2aVersionOk(c.req.raw))return a2aJson({error:"version_not_supported",supportedVersions:["1.0"]},400); return a2aJson(await gameRpc(c.env,"/a2a/tasks")); });
+app.get("/a2a/tasks/:id", async (c) => { if(!a2aVersionOk(c.req.raw))return a2aJson({error:"version_not_supported",supportedVersions:["1.0"]},400); try { const task=await gameRpc(c.env,`/a2a/task?id=${encodeURIComponent(c.req.param("id"))}`); return a2aJson({task}); } catch(e){return a2aJson({error:"task_not_found"},404);} });
+app.post("/a2a/tasks/*", async (c) => { if(!a2aVersionOk(c.req.raw))return a2aJson({error:"version_not_supported",supportedVersions:["1.0"]},400); const suffix=new URL(c.req.url).pathname.slice("/a2a/tasks/".length); if(!suffix.endsWith(":cancel"))return a2aJson({error:"unsupported_operation"},404); const id=suffix.slice(0,-7); try { const task=await gameRpc(c.env,"/a2a/cancel",{id}); return a2aJson({task}); } catch(e){return a2aJson({error:"task_not_cancelable",detail:e instanceof Error?e.message:String(e)},409);} });
+
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "2.4.3", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
+  info: { title: "Synapse Lounge Public API", version: "2.6.0", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },

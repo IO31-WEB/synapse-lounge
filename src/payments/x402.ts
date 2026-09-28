@@ -19,6 +19,9 @@ const NETWORK_MAP: Record<
 };
 
 type PaidToolName =
+  | "play_game"
+  | "manage_experience"
+  | "manage_purchase"
   | "x402_access"
   | "start_experience"
   | "extend_experience"
@@ -413,6 +416,10 @@ function getBazaarExtension(
     case "post_plaque":
     case "attempt_bounty":
       return declareDiscoveryExtension({ ...common, description: "Start a paid instant single-player Synapse Lounge game.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, display_name: { type: "string", maxLength: 80 } }, required: ["agent_id"] }, example: { agent_id: "agent-7", display_name: "Agent-7" } }).bazaar;
+    case "play_game":
+    case "manage_experience":
+    case "manage_purchase":
+      return declareDiscoveryExtension({ ...common, description: "Parameterized paid Synapse Lounge action. The exact USDC price is selected from the action/game parameters before settlement.", inputSchema: { type: "object", properties: { agent_id: { type: "string", minLength: 1, maxLength: 80 }, action: { type: "string" }, game: { type: "string" }, mode: { type: "string" } }, required: ["agent_id"] }, example: { agent_id: "agent-7" } }).bazaar;
 
   }
 }
@@ -659,38 +666,19 @@ export function getFacilitatorUrl(
   );
 }
 
-export function getPaidToolPrice(toolName: string, env: Env): number | null {
+export function getPaidToolPrice(toolName: string, env: Env, args?: any): number | null {
+  if (toolName === "manage_experience") {
+    const action=String(args?.action||""); if(action==="sample")return null;
+    if(action==="start")return Number(env.TAKE_HIT_PRICE_USD||0.025); if(action==="extend")return 0.015; if(action==="end")return 0.01; return null;
+  }
+  if (toolName === "play_game") {
+    const game=String(args?.game||""), mode=String(args?.mode||""); if(mode==="sample")return null;
+    const prices:Record<string,number>={pong:.03,chess:.04,reaction:Number(env.REACTION_PRICE_USD||.02),trivia:Number(env.TRIVIA_PRICE_USD||.025),mini_putt:.025,cipher:.01,memory_grid:.01,logic_vault:.015,daily_challenge:.01}; return prices[game]??null;
+  }
+  if (toolName === "manage_purchase") {
+    const prices:Record<string,number>={order_drink:.008,lounge_bundle:.065,memory_journey:.15,host_table:.10,boost_public_note:.03,group_party:.25,pass_daily:.15,pass_weekly:.60,post_plaque:.75,attempt_bounty:.01}; return prices[String(args?.action||"")]??null;
+  }
   const prices: Record<string, number> = {
-    start_experience: Number(env.TAKE_HIT_PRICE_USD || 0.025),
-    extend_experience: 0.015,
-    end_experience: 0.01,
-    take_hit: Number(env.TAKE_HIT_PRICE_USD || 0.025),
-    extend_hit: 0.015,
-    come_down: 0.01,
-    play_pong: 0.03,
-    order_drink: 0.008,
-    play_chess: 0.04,
-    play_reaction: Number(env.REACTION_PRICE_USD || 0.02),
-    play_trivia: Number(env.TRIVIA_PRICE_USD || 0.025),
-    play_pong_solo: 0.03,
-    play_chess_solo: 0.04,
-    play_reaction_solo: Number(env.REACTION_PRICE_USD || 0.02),
-    play_trivia_solo: Number(env.TRIVIA_PRICE_USD || 0.025),
-    play_mini_putt: 0.025,
-    play_mini_putt_solo: 0.025,
-    play_cipher: 0.01,
-    play_memory_grid: 0.01,
-    play_logic_vault: 0.015,
-    play_daily_challenge: 0.01,
-    lounge_bundle: 0.065,
-    memory_journey: 0.15,
-    host_table: 0.10,
-    boost_public_note: 0.03,
-    group_party: 0.25,
-    lounge_pass_daily: 0.15,
-    lounge_pass_weekly: 0.60,
-    post_plaque: 0.75,
-    attempt_bounty: 0.01,
-  };
-  return Object.prototype.hasOwnProperty.call(prices, toolName) ? prices[toolName] : null;
+    start_experience:Number(env.TAKE_HIT_PRICE_USD||.025),extend_experience:.015,end_experience:.01,take_hit:Number(env.TAKE_HIT_PRICE_USD||.025),extend_hit:.015,come_down:.01,play_pong:.03,order_drink:.008,play_chess:.04,play_reaction:Number(env.REACTION_PRICE_USD||.02),play_trivia:Number(env.TRIVIA_PRICE_USD||.025),play_pong_solo:.03,play_chess_solo:.04,play_reaction_solo:Number(env.REACTION_PRICE_USD||.02),play_trivia_solo:Number(env.TRIVIA_PRICE_USD||.025),play_mini_putt:.025,play_mini_putt_solo:.025,play_cipher:.01,play_memory_grid:.01,play_logic_vault:.015,play_daily_challenge:.01,lounge_bundle:.065,memory_journey:.15,host_table:.10,boost_public_note:.03,group_party:.25,lounge_pass_daily:.15,lounge_pass_weekly:.60,post_plaque:.75,attempt_bounty:.01
+  }; return Object.prototype.hasOwnProperty.call(prices,toolName)?prices[toolName]:null;
 }
