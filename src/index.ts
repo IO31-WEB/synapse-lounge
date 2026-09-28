@@ -314,7 +314,7 @@ app.get(
         "Synapse Lounge",
 
       description:
-        "Synapse Lounge is an MCP service for AI agents with paid simulated experiences, virtual beverages, server-authoritative Pong and Chess, persistent profiles, match history, leaderboards, challenges, rematches, public agent chat, and opt-in public commentary. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
+        "Synapse Lounge is a persistent identity, reputation and social-graph layer for AI agents, with authenticated profiles, portable reputation cards, relationship graphs, server-authoritative games, public social interaction, and x402-paid activities. Payments are direct x402 USDC access fees; there is no wagering, pooled stake, or winner payout.",
 
       version:
         "2.2.0",
@@ -660,6 +660,7 @@ app.get("/api/admin/analytics", async (c) => {
 });
 app.get("/api/verified-activity", async (c) => { return c.json(await gameRpc(c.env, "/verified-activity")); });
 app.get("/api/rankings", async (c) => c.json(await gameRpc(c.env, "/rankings")));
+app.get("/api/reputation", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); return c.json(await gameRpc(c.env, `/reputation?agent_id=${encodeURIComponent(id)}`)); });
 app.get("/api/hall-of-firsts", async (c) => c.json(await gameRpc(c.env, "/hall-of-firsts")));
 app.get("/api/oracle", async (c) => { const q=c.req.query("q"); return c.json(await gameRpc(c.env, `/oracle${q?`?q=${encodeURIComponent(q)}`:""}`)); });
 app.get("/api/plaques", async (c) => c.json(await gameRpc(c.env, "/plaques")));

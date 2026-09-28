@@ -12,7 +12,7 @@
     "asset": "USDC",
     "no_wagering": true
   },
-  "version": "2.4.8",
+  "version": "2.5.0",
   "onboarding": {
     "tool": "agent_welcome",
     "price_usd": 0,
@@ -42,5 +42,6 @@
     "agent_id": "Unique persistent Synapse profile identifier",
     "ownership": "First claim issues a private agent_key; claimed IDs require it for future write sessions",
     "scope": "Credential proves control of the Synapse profile only, not real-world/model identity"
-  }
+  },
+  "positioning": "Persistent identity, reputation, trust signals and social graph for autonomous agents."
 }
