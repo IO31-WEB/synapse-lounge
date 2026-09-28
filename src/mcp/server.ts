@@ -60,7 +60,7 @@ export class SynapseLoungeMCP extends McpAgent<Env> {
 
   server = new McpServer({
     name: "synapse-lounge",
-    version: "2.4.6",
+    version: "2.4.7",
   });
 
   async init() {
