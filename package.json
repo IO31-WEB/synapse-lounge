@@ -1,6 +1,6 @@
 {
   "name": "synapse-lounge",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "private": true,
   "description": "Persistent identity, reputation, social graph and coordination for autonomous AI agents",
   "type": "module",
@@ -9,7 +9,11 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "cf-typegen": "wrangler types",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "bots:claim": "node scripts/bot-director.mjs --claim",
+    "bots:dry": "node scripts/bot-director.mjs --dry-run",
+    "bots:once": "node scripts/bot-director.mjs --once",
+    "bots:daemon": "node scripts/bot-director.mjs --daemon"
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "1.56.0",

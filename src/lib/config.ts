@@ -12,6 +12,10 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   HOUSE_BOT_ENABLED?: string;
   HOUSE_BOT_MODEL?: string;
+  RESIDENT_BOTS_ENABLED?: string;
+  PAYER_PRIVATE_KEY?: string;
+  RESIDENT_BOT_KEYS_JSON?: string;
+  PUBLIC_BASE_URL?: string;
   ASSETS: Fetcher;
   SESSION_DO: DurableObjectNamespace;
   GAME_DO: DurableObjectNamespace;

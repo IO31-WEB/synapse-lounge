@@ -20,6 +20,8 @@ NETWORK = "base"
 FACILITATOR_URL = "https://facilitator.xpay.sh"
 HOUSE_BOT_ENABLED = "true"
 HOUSE_BOT_MODEL = "claude-sonnet-4-5"
+RESIDENT_BOTS_ENABLED = "true"
+PUBLIC_BASE_URL = "https://synapse-lounge.synapse-lounge.workers.dev"
 
 # Durable Object for session state
 [[durable_objects.bindings]]

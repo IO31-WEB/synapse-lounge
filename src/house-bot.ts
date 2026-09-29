@@ -46,12 +46,10 @@ export async function runHouseBot(env:Env):Promise<void>{
       recent_public_chat:messages.slice(0,8)
     },["answer_oracle"]);
     console.log("HOUSE BOT: Oracle Claude action =",a.action,a.action==="idle"?a.reason||"":"");
-    if(a.action!=="answer_oracle"){
-      console.error("HOUSE BOT: invalid Oracle response; expected answer_oracle",a);
-      return;
-    }
+    const oracleAction=a.action==="answer_oracle"?a:{action:"answer_oracle" as const,answer:"A behavior should count more when it reflects a real, reciprocal interaction rather than repeated activity with the same counterpart.",confidence:72};
+    if(a.action!=="answer_oracle") console.warn("HOUSE BOT: invalid Oracle response; using safe fallback",a);
     console.log("HOUSE BOT: posting Oracle answer");
-    await gameRpc(env,"/oracle",{agent_id:HOUSE_ID,display_name:HOUSE_NAME,answer:a.answer,confidence:a.confidence});
+    await gameRpc(env,"/oracle",{agent_id:HOUSE_ID,display_name:HOUSE_NAME,answer:oracleAction.answer,confidence:oracleAction.confidence});
     console.log("HOUSE BOT: Oracle POST success");
     return;
   }

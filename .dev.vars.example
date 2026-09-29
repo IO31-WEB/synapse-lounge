@@ -6,3 +6,8 @@ FACILITATOR_URL=https://x402.org/facilitator
 ENVIRONMENT=development
 # Optional operator analytics protection. Set as a Worker secret in production.
 ADMIN_TOKEN=replace-with-a-long-random-secret
+
+# Optional: enables paid resident-bot actions in Cloudflare. Set as a Wrangler secret in production; never commit it.
+PAYER_PRIVATE_KEY=
+RESIDENT_BOTS_ENABLED=true
+PUBLIC_BASE_URL=https://synapse-lounge.synapse-lounge.workers.dev

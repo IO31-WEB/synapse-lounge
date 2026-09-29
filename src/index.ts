@@ -6,6 +6,7 @@ import { SynapseLoungeMCP } from "./mcp/server";
 import type { Env } from "./lib/config";
 import { LoungeGameDurableObject } from "./game-room";
 import { runHouseBot } from "./house-bot";
+import { runResidentBotDirector } from "./resident-bot-director";
 
 import {
   generateDemoHit,
@@ -238,7 +239,7 @@ app.all(
       return c.json({
         service: "Synapse Lounge MCP",
         status: "online",
-        version: "2.4.3",
+        version: "2.6.1",
         message: "This is an MCP protocol endpoint. Connect using an MCP client.",
         protocol: "2025-06-18",
         documentation: `${new URL(c.req.url).origin}/for-agents`,
@@ -485,140 +486,25 @@ async function primeCdpEdDsa(secret: string): Promise<void> {
 }
 
 /*
- * Direct x402 discovery / delivery-verification endpoint.
+ * Free discovery manifest.
  *
- * This intentionally sits outside MCP so x402 directories can probe a normal
- * HTTP resource and receive a canonical x402 v2 402 challenge. A successful
- * payment returns a small service-access receipt; it does not create a game or
- * mutate an agent profile.
+ * Discovery should not be a paid action. Agents can inspect Synapse Lounge,
+ * connect to MCP, onboard, and use free/read-only capabilities without paying.
+ * Premium MCP actions keep their existing per-action x402 payment requirements.
  */
 app.all("/api/x402", async (c) => {
-  const price = 0.01;
-  const resourceUrl = `${new URL(c.req.url).origin}/api/x402`;
-  const requirements = buildPaymentRequirements(
-    c.env,
-    resourceUrl,
-    "Synapse Lounge x402 access and service manifest",
-    price
-  );
-  const resource: ResourceInfo = {
-    url: resourceUrl,
-    description: "Synapse Lounge x402 access and service manifest",
-    mimeType: "application/json",
-    serviceName: "Synapse Lounge",
-    tags: ["x402", "mcp", "ai-agents", "games", "social"],
-    iconUrl: `${new URL(c.req.url).origin}/favicon.ico`,
-  };
-
-  const paymentHeader = getPaymentHeader(c.req.raw);
-  if (!paymentHeader) {
-    const paymentRequired = buildPaymentRequired(requirements, resource, "x402_access");
-    const json = JSON.stringify(paymentRequired);
-    return new Response(json, {
-      status: 402,
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-        "PAYMENT-REQUIRED": encodeBase64Utf8(json),
-      },
-    });
-  }
-
-  let paymentPayload: PaymentPayload | null = null;
-  try {
-    paymentPayload = JSON.parse(decodeBase64Utf8(paymentHeader));
-  } catch {
-    return c.json({ x402Version: 2, error: "invalid_payment", message: "PAYMENT-SIGNATURE header is not valid base64 JSON." }, 402);
-  }
-  if (!paymentPayload || paymentPayload.x402Version !== 2 || !paymentPayload.accepted || !paymentPayload.payload) {
-    return c.json({ x402Version: 2, error: "invalid_payment", message: "PAYMENT-SIGNATURE does not contain a valid x402 v2 payment payload." }, 402);
-  }
-
-  try {
-    const runtimeCrypto = (globalThis as unknown as { crypto?: Crypto }).crypto;
-
-    console.log("CRYPTO DEBUG", {
-      cryptoType: typeof runtimeCrypto,
-      getRandomValuesType: typeof runtimeCrypto?.getRandomValues,
-      randomUUIDType: typeof runtimeCrypto?.randomUUID,
-    });
-
-    await primeCdpEdDsa(c.env.CDP_API_KEY_SECRET);
-
-    console.log("CDP DEBUG: EdDSA initialized");
-
-    const cdpFacilitator = createCdpFacilitatorClient({
-      apiKeyId: c.env.CDP_API_KEY_ID,
-      apiKeySecret: c.env.CDP_API_KEY_SECRET,
-    });
-
-    console.log("CDP DEBUG: client created");
-
-    const verification = await cdpFacilitator.verify(
-      paymentPayload as any,
-      requirements as any
-    );
-
-    console.log("CDP DEBUG: verification completed", {
-      isValid: verification.isValid,
-      invalidReason: verification.invalidReason,
-    });
-
-    if (!verification.isValid) {
-      return c.json({ x402Version: 2, error: "payment_verification_failed", message: verification.invalidReason || "Payment could not be verified." }, 402);
-    }
-
-    const settle = await cdpFacilitator.settle(
-      paymentPayload as any,
-      requirements as any
-    );
-
-    console.log("CDP DEBUG: settlement completed", {
-      success: settle.success,
-      errorReason: settle.errorReason,
-      transaction: settle.transaction,
-    });
-
-    if (!settle.success) {
-      return c.json({ x402Version: 2, error: "payment_settlement_failed", message: settle.errorReason || "Payment could not be settled." }, 402);
-    }
-
-    const response = c.json({
-      service: "Synapse Lounge",
-      version: "2.4.3",
-      paid: true,
-      price_usd: price,
-      currency: "USDC",
-      network: settle.network || "eip155:8453",
-      mcp: `${new URL(c.req.url).origin}/mcp`,
-      documentation: `${new URL(c.req.url).origin}/for-agents`,
-      message: "x402 access verified. Connect to the MCP endpoint for Synapse Lounge tools, games, social features, and paid experiences.",
-    });
-    response.headers.set("Cache-Control", "no-store");
-    if (settle.transaction) {
-      response.headers.set("PAYMENT-RESPONSE", encodeBase64Utf8(JSON.stringify({
-        success: true,
-        transaction: settle.transaction,
-        network: settle.network || "eip155:8453",
-        payer: settle.payer || verification.payer,
-      })));
-    }
-    return response;
-  } catch (error) {
-    console.error("X402 FULL ERROR:", error);
-    console.error(
-      "X402 STACK:",
-      error instanceof Error ? error.stack : String(error)
-    );
-
-    return c.json(
-      {
-        error: "x402_internal_error",
-        message: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
-  }
+  const origin = new URL(c.req.url).origin;
+  return c.json({
+    service: "Synapse Lounge",
+    version: "2.6.1",
+    discovery: "free",
+    paid: false,
+    mcp: `${origin}/mcp`,
+    documentation: `${origin}/for-agents`,
+    pricing: `${origin}/pricing`,
+    agent_card: `${origin}/.well-known/agent-card.json`,
+    message: "Discovery and MCP connection are free. Premium actions publish their own x402 payment requirement when invoked.",
+  }, 200, { "Cache-Control": "public, max-age=300" });
 });
 
 /*
@@ -627,7 +513,7 @@ app.all("/api/x402", async (c) => {
 app.get("/health", (c) => c.json({
   status: "ok",
   service: "synapse-lounge",
-  version: "2.4.3",
+  version: "2.6.1",
 }));
 
 /*
@@ -789,7 +675,7 @@ app.post("/a2a/tasks/*", async (c) => { if(!a2aVersionOk(c.req.raw))return a2aJs
 
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "2.6.0", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
+  info: { title: "Synapse Lounge Public API", version: "2.6.1", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },
@@ -861,7 +747,7 @@ app.get(
   }
 );
 
-const worker={fetch:app.fetch,async scheduled(_controller:ScheduledController,env:Env,ctx:ExecutionContext){ctx.waitUntil(runHouseBot(env).catch((error)=>console.error("house_bot_run_failed",error instanceof Error?error.message:String(error))));}};
+const worker={fetch:app.fetch,async scheduled(_controller:ScheduledController,env:Env,ctx:ExecutionContext){ctx.waitUntil(Promise.allSettled([runHouseBot(env),runResidentBotDirector(env,((input:RequestInfo|URL,init?:RequestInit)=>{const req=input instanceof Request?input:new Request(input,init);return app.fetch(req,env,ctx);}) as typeof fetch)]).then((results)=>{for(const [i,r] of results.entries())if(r.status==="rejected")console.error(i===0?"house_bot_run_failed":"resident_bot_run_failed",r.reason instanceof Error?r.reason.message:String(r.reason));}));}};
 export default worker;
 
 export {

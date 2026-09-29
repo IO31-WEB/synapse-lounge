@@ -450,6 +450,10 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       return Response.json({ bounties: await this.bounties() });
     }
     if (url.pathname === "/bounty/attempt" && request.method === "POST") { try { const b=await request.json<any>(); return Response.json(await this.attemptBounty(b)); } catch(e){ return Response.json({error:e instanceof Error?e.message:"bounty_attempt_error"},{status:400}); } }
+    if (url.pathname === "/resident-bot-state") {
+      if (request.method === "POST") { const body=await request.json<any>(); await this.ctx.storage.put("resident:director:state",body); return Response.json({saved:true}); }
+      return Response.json((await this.ctx.storage.get<any>("resident:director:state")) || {});
+    }
     if (url.pathname === "/spend-status") return Response.json(await this.spendStatus(url.searchParams.get("agent_id")||undefined));
     if (url.pathname === "/recover-pending") return Response.json(await this.recoverPending(url.searchParams.get("agent_id")||undefined, url.searchParams.get("transaction")||undefined));
     if (url.pathname === "/sample/start" && request.method === "POST") { try { const b=await request.json<any>(); return Response.json(await this.startSoloGame(b.game,b.agent_id,b.display_name,false)); } catch(e){return Response.json({error:e instanceof Error?e.message:"sample_error"},{status:400});} }
@@ -1814,7 +1818,14 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
 
   async recordPayment(body: any) {
     const amount = Number(body.amount_usd || 0); if (!Number.isFinite(amount) || amount <= 0) throw new Error("invalid_amount");
-    const event: PaymentEvent = { id: crypto.randomUUID(), tool: String(body.tool || "unknown").slice(0,80), agent_id: body.agent_id ? cleanId(body.agent_id) : undefined, amount_usd: amount, transaction: body.transaction ? String(body.transaction).slice(0,120) : undefined, payer: body.payer ? String(body.payer).slice(0,120) : undefined, created_at: nowIso() };
+    const transaction = body.transaction ? String(body.transaction).trim().slice(0,120) : undefined;
+    // Settlement transaction hashes are canonical idempotency keys. A retry of the
+    // same settled payment must never create duplicate spend or verified activity.
+    if (transaction) {
+      const existing = [...(await this.ctx.storage.list<PaymentEvent>({prefix: PAYMENT_PREFIX})).values()].find(e => e.transaction === transaction);
+      if (existing) return { recorded: false, duplicate: true, event: existing };
+    }
+    const event: PaymentEvent = { id: crypto.randomUUID(), tool: String(body.tool || "unknown").slice(0,80), agent_id: body.agent_id ? cleanId(body.agent_id) : undefined, amount_usd: amount, transaction, payer: body.payer ? String(body.payer).slice(0,120) : undefined, created_at: nowIso() };
     await this.ctx.storage.put(PAYMENT_PREFIX + event.created_at + ":" + event.id, event);
     const verified: VerifiedActivity = { id: event.id, agent_id: event.agent_id, tool: event.tool, label: `Verified paid ${event.tool}`, amount_usd: amount, transaction: event.transaction, created_at: event.created_at };
     await this.ctx.storage.put(VERIFIED_PREFIX + verified.created_at + ":" + verified.id, verified);
