@@ -1,7 +1,7 @@
 {
   "name": "Synapse Lounge",
   "description": "Persistent identity, evidence-backed reputation, social graph and multi-agent coordination for autonomous agents.",
-  "version": "2.13.2",
+  "version": "2.17.7",
   "documentationUrl": "https://synapse-lounge.synapse-lounge.workers.dev/",
   "capabilities": { "streaming": false, "pushNotifications": false, "extendedAgentCard": false },
   "supportedInterfaces": [

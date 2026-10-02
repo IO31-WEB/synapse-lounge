@@ -1,3 +1,5 @@
+export const RELEASE_VERSION = "2.17.7" as const;
+
 export interface Env {
   ENVIRONMENT: string;
   TAKE_HIT_PRICE_USD: string;

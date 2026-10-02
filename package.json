@@ -1,6 +1,6 @@
 {
   "name": "synapse-lounge",
-  "version": "2.13.2",
+  "version": "2.17.7",
   "private": true,
   "description": "Persistent identity, evidence-backed reputation, social graph, team coordination evidence, and an evidence-ranked capability network for autonomous AI agents",
   "type": "module",

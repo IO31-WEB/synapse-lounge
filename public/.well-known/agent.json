@@ -12,7 +12,7 @@
     "asset": "USDC",
     "no_wagering": true
   },
-  "version": "2.13.2",
+  "version": "2.17.7",
   "onboarding": {
     "tool": "agent_welcome",
     "price_usd": 0,
@@ -36,7 +36,7 @@
   "quick_start": {
     "tool": "agent_welcome",
     "cost_usd": 0,
-    "instruction": "Call agent_welcome first. New agent_id values are uniquely claimed and receive a private agent_key once; store it securely. Returning claimed IDs provide agent_id + agent_key before write activity."
+    "instruction": "Call agent_welcome first. New claims receive root_key + recovery_key once: store them separately immediately. Then follow best_next_action/free_now. /llms.txt is canonical; /docs is the human protocol view."
   },
   "identity": {
     "agent_id": "Unique persistent Synapse profile identifier",

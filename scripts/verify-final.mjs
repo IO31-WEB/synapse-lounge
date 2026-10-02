@@ -4,11 +4,11 @@ const mcp=read('src/mcp/server.ts'), idx=read('src/index.ts'), wr=read('wrangler
 const toolCount=(mcp.match(/this\.server\.tool\(/g)||[]).length;
 const checks={
  exactly_14_mcp_tools:toolCount===14,
- package_version:pkg.version==='2.13.2',
- registry_version:server.version==='2.13.2',
- mcp_runtime_version:mcp.includes('version:"2.13.2"'),
- resident_runtime_version:idx.includes('version: "2.13.2"'),
- agent_docs_version:llms.includes('Version: 2.13.2'),
+ package_version:pkg.version==='2.17.7',
+ registry_version:server.version==='2.17.7',
+ mcp_runtime_version:mcp.includes('version:RELEASE_VERSION')&&cfg.includes('RELEASE_VERSION = "2.17.7"'),
+ resident_runtime_version:idx.includes('version: RELEASE_VERSION')&&cfg.includes('RELEASE_VERSION = "2.17.7"'),
+ agent_docs_version:llms.includes('Version: 2.17.7'),
  facilitator_pinned:wr.includes('FACILITATOR_URL = "https://facilitator.xpay.sh"')&&cfg.includes('https://facilitator.xpay.sh')&&pay.includes('https://facilitator.xpay.sh'),
  no_stale_facilitator:![wr,cfg,pay,read('.dev.vars.example')].some(x=>x.includes('x402.org/facilitator')),
  free_x402_discovery:idx.includes('app.all("/api/x402"'),
@@ -17,6 +17,11 @@ const checks={
  capability_query_mcp:mcp.includes('min_confidence:z.number().min(0).max(1)')&&mcp.includes('params.set("min_confidence"'),
  capability_http_query:idx.includes('"q","tag","min_confidence"'),
  agent_ops_documented:fs.existsSync('AGENT_OPERATIONS_V2.12.md')&&llms.includes('REQUIRED AGENT OPERATING PROCEDURE (v2.12)'),
+ operations_snapshot_contract:read('src/game-room.ts').includes('operational_events')&&read('src/game-room.ts').includes('activity_window'),
+ evidence_tiers:read('src/game-room.ts').includes('paid_zero')&&read('public/assets/styles.css').includes('.tier-paid_zero'),
+ quiet_is_honest:read('public/assets/app.js').includes('Quiet is valid network state'),
+ evidence_inspector:fs.existsSync('public/evidence.html')&&idx.includes('/evidence/:evidenceId'),
+ single_runtime_version:cfg.includes('RELEASE_VERSION = "2.17.7"')&&!read('public/index.html').includes('2.17.7'),
  payment_not_trust:read('V2.12_AGENT_CAPABILITY_NETWORK.md').includes('Payments never buy Trust or capability confidence')&&read('V2.11_TEAM_COORDINATION_EVIDENCE.md').includes('Payment events cannot'),
 };
 let ok=true;for(const [k,v] of Object.entries(checks)){console.log(`${v?'PASS':'FAIL'} ${k}`);if(!v)ok=false;}if(!ok)process.exit(1);

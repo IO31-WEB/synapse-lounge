@@ -4,6 +4,7 @@ import { generateKeyPair, exportJWK, importJWK, SignJWT } from "jose";
 
 import { SynapseLoungeMCP } from "./mcp/server";
 import type { Env } from "./lib/config";
+import { RELEASE_VERSION } from "./lib/config";
 import { LoungeGameDurableObject } from "./game-room";
 import { runHouseBot } from "./house-bot";
 import { runResidentBotDirector } from "./resident-bot-director";
@@ -225,7 +226,9 @@ async function handleMcp(request: Request, env: Env, executionCtx: ExecutionCont
   // failure loud/observable while still allowing the paid action to execute.
   for (let attempt = 1; attempt <= 3 && !paymentRecorded; attempt++) {
     try {
-      const recorded = await gameRpc(env, "/analytics/payment", { tool: toolName, agent_id: agentId, amount_usd: price, transaction: settle.transaction, payer: settle.payer || verification.payer });
+      const paidArgs = rpc?.params?.arguments && typeof rpc.params.arguments === "object" ? rpc.params.arguments : {};
+      const context = Object.fromEntries(Object.entries(paidArgs).filter(([key]) => ["game","mode","action","drink_id","experience","flavor","intensity","duration_minutes","match_id"].includes(key)));
+      const recorded = await gameRpc(env, "/analytics/payment", { tool: toolName, agent_id: agentId, amount_usd: price, transaction: settle.transaction, payer: settle.payer || verification.payer, context });
       paymentRecorded = Boolean(recorded?.recorded || recorded?.duplicate);
       if (!paymentRecorded) paymentRecordError = "payment_record_not_confirmed";
     } catch (error) {
@@ -303,9 +306,19 @@ app.get("/terms", async (c) => {
   const request = new Request(new URL("/terms.html", c.req.url), c.req.raw);
   return c.env.ASSETS.fetch(request);
 });
+app.get("/docs", async (c) => {
+  const u=new URL("/",c.req.url); u.hash="for-agents";
+  return Response.redirect(u.toString(),302);
+});
 app.get("/pong", async (c) => {
   const request = new Request(new URL("/pong.html", c.req.url), c.req.raw);
   return c.env.ASSETS.fetch(request);
+});
+app.get("/evidence/:evidenceId", async (c) => {
+  const evidenceId = c.req.param("evidenceId");
+  const evidenceUrl = new URL("/evidence.html", c.req.url);
+  evidenceUrl.searchParams.set("evidence_id", evidenceId);
+  return c.env.ASSETS.fetch(new Request(evidenceUrl, c.req.raw));
 });
 app.get("/agent/:agentId", async (c) => {
   // Cloudflare Assets canonicalizes /profile.html to /profile. Preserve the
@@ -579,6 +592,8 @@ app.get("/api/admin/analytics", async (c) => {
 app.get("/api/verified-activity", async (c) => { return c.json(await gameRpc(c.env, "/verified-activity")); });
 app.get("/api/rankings", async (c) => c.json(await gameRpc(c.env, "/rankings")));
 app.get("/api/reputation", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); return c.json(await gameRpc(c.env, `/reputation?agent_id=${encodeURIComponent(id)}`)); });
+app.get("/api/reputation/explain", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); return c.json(await gameRpc(c.env, `/reputation/explain?agent_id=${encodeURIComponent(id)}`)); });
+app.get("/api/evidence", async (c) => { const evidenceId=c.req.query("evidence_id"); if(evidenceId)return c.json(await gameRpc(c.env, `/evidence-detail?id=${encodeURIComponent(evidenceId)}`)); const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_or_evidence_id_required"},400); return c.json(await gameRpc(c.env, `/evidence?agent_id=${encodeURIComponent(id)}`)); });
 app.get("/api/social", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); const other=c.req.query("other_agent_id"); return c.json(await gameRpc(c.env, `/social?agent_id=${encodeURIComponent(id)}${other?`&other_agent_id=${encodeURIComponent(other)}`:""}`)); });
 app.get("/api/social/interactions", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); const other=c.req.query("other_agent_id"); return c.json(await gameRpc(c.env, `/social/interactions?agent_id=${encodeURIComponent(id)}${other?`&other_agent_id=${encodeURIComponent(other)}`:""}`)); });
 app.get("/api/reputation/attestations", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); return c.json(await gameRpc(c.env, `/reputation/attestations?agent_id=${encodeURIComponent(id)}`)); });
@@ -689,7 +704,7 @@ app.get("/api/lounge", async (c) => {
 
 app.get("/api/resident-director", async (c) => {
   const state = await gameRpc(c.env, "/resident-bot-state");
-  return c.json({ service: "Synapse Resident Director", version: "2.13.2", ...state });
+  return c.json({ service: "Synapse Resident Director", version: RELEASE_VERSION, ...state });
 });
 
 

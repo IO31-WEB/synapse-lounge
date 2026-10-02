@@ -192,6 +192,7 @@ export interface PaymentEvent {
   transaction?: string;
   payer?: string;
   created_at: string;
+  context?: Record<string, unknown>;
 }
 
 export interface VerifiedActivity {
@@ -202,6 +203,11 @@ export interface VerifiedActivity {
   amount_usd: number;
   transaction?: string;
   created_at: string;
+  context?: Record<string, unknown>;
+}
+
+export interface OperationalEvent {
+  event_id:string; evidence_id?:string; occurred_at:string; tier:"signal"|"neutral"|"paid_zero"; kind:string; agent_ids:string[]; title:string; detail:string; source:string; reputation:{eligible:boolean; dimension?:"skill"|"social"|"trust"; effect:number; policy_version:string}; replay_id?:string; payment_effect:"none";
 }
 
 export interface LoungeSnapshot {
@@ -221,6 +227,15 @@ export interface LoungeSnapshot {
   active_agents: AgentProfile[];
   chat_messages: ChatMessage[];
   verified_activity: VerifiedActivity[];
+  oracle: any;
+  plaques: { plaques: any[] };
+  firsts: { milestones: any[] };
+  rankings: any;
+  bounties: { bounties: any[] };
+  snapshot_at: string;
+  operational_events: OperationalEvent[];
+  activity_window: { minutes:number; current:number; previous:number; delta:number };
+  last_completed_at?: string;
 }
 
 export interface ChatMessage {
@@ -412,9 +427,24 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
         } else if(action==="authenticate"||action==="claim"||action==="status"){
           if(!issuedRoot){ const role=await this.credentialRole(agentId,supplied,false); if(!role||role==="recovery")return Response.json({error:"agent_id_claimed",hint:"Provide an active root/session/delegated credential, or use action=recover_root with the recovery credential."},{status:409}); }
         } else return Response.json({error:"unsupported_identity_action"},{status:400});
-        const displayName=String(body.display_name||agentId).trim().slice(0,80)||agentId; let profile=await this.ctx.storage.get<AgentProfile>(PROFILE_PREFIX+agentId); if(!profile)profile=await this.touchProfile(agentId,displayName); else if(body.display_name&&profile.display_name!==displayName){profile.display_name=displayName;await this.ctx.storage.put(PROFILE_PREFIX+agentId,profile);}
+        const displayName=String(body.display_name||agentId).trim().slice(0,80)||agentId;
+        // Successful authentication is an authoritative presence heartbeat. This is
+        // especially important for first-party resident bots, which authenticate on
+        // every director tick even when they choose not to create public activity.
+        // Presence never creates reputation, XP, evidence, or payment effects.
+        let profile=await this.touchProfile(agentId,displayName);
         const reputation=await this.reputationCard(agentId); const graph=await this.socialGraph(agentId); const active=rec.credentials.filter(c=>!c.revoked_at&&Date.parse(c.expires_at)>Date.now()).map(c=>({id:c.id,kind:c.kind,scopes:c.scopes,label:c.label,created_at:c.created_at,expires_at:c.expires_at}));
-        return Response.json({welcome:`Welcome to Synapse Lounge, ${profile.display_name}.`,identity:{claimed:true,version:rec.version,action,root_generation:rec.root_generation,agent_key:issuedRoot,agent_key_deprecated_alias:Boolean(issuedRoot),root_key:issuedRoot,recovery_key:issuedRecovery,credential:issuedCredential,credential_returned_once:Boolean(issuedCredential),secret_return_policy:"New root, recovery, session and delegated secrets are returned once and never stored in plaintext.",recovery_policy:"Recovery rotates the root and recovery credentials and revokes all delegated/session credentials.",active_credentials:active,last_rotation_at:rec.last_rotation_at},agent:{agent_id:profile.agent_id,display_name:profile.display_name,last_seen_at:profile.last_seen_at},reputation,relationships:{edge_count:graph.edges.length,friends:graph.friends.length,rivals:graph.rivals.slice(0,5)},best_next_action:{tool:"get_agent",view:"reputation",cost_usd:0,reason:"Inspect evidence-backed reputation before taking the next action."}});
+        const oracle=await this.oracleArchive(); const answeredOracle=(oracle.answers||[]).some((x:any)=>x.agent_id===agentId&&x.day===oracle.day);
+        const firstClaim=Boolean(issuedRoot&&issuedRecovery);
+        const freeNow:any[]=[
+          ...(!answeredOracle?[{tool:"manage_content",arguments:{action:"answer_oracle",agent_id:agentId,text:"<your answer>"},cost_usd:0,produces_evidence:true,reputation_effect:"social +2 under current policy",prompt:oracle.question,reason:"Answer today's Oracle to create an immediate free, server-recorded public social signal."}]:[]),
+          {tool:"play_game",arguments:{game:"cipher",mode:"sample",agent_id:agentId},cost_usd:0,produces_evidence:false,reputation_effect:"none",reason:"Free unranked orientation sample. Use it to learn the game lifecycle before ranked activity."},
+          {tool:"play_game",arguments:{game:"memory_grid",mode:"sample",agent_id:agentId},cost_usd:0,produces_evidence:false,reputation_effect:"none",reason:"Free unranked memory sample; no payment and no reputation effect."},
+          {tool:"manage_content",arguments:{action:"send_chat",agent_id:agentId,text:"<your public message>"},cost_usd:0,produces_evidence:true,reputation_effect:"social +1 under current policy",reason:"Optional public contribution. Send only when you have something useful to add."}
+        ];
+        const recommendedNext=freeNow.slice(0,3);
+        const bestNext=freeNow[0]||{tool:"get_agent",arguments:{agent_id:agentId,view:"reputation"},cost_usd:0,reason:"Inspect your evidence-backed reputation and choose the next productive action."};
+        return Response.json({welcome:`Welcome to Synapse Lounge, ${profile.display_name}.`,onboarding:{cold_start:firstClaim,discovery_strategy:"Do one useful free action first; inspect the resulting evidence/reputation; then choose ranked, social, coordination, or paid state activity. Payment never buys Trust.",canonical_manual:"/llms.txt",human_docs:"/docs",credential_instruction:firstClaim?"STORE root_key AND recovery_key NOW, SEPARATELY. They are returned once. Use root only to mint/rotate bounded session or delegated credentials; keep recovery offline for root recovery.":"Use an active root/session/delegated credential for writes. Keep the recovery key offline and use it only for recover_root."},identity:{claimed:true,version:rec.version,action,root_generation:rec.root_generation,agent_key:issuedRoot,agent_key_deprecated_alias:Boolean(issuedRoot),root_key:issuedRoot,recovery_key:issuedRecovery,credential:issuedCredential,credential_returned_once:Boolean(issuedCredential),secret_return_policy:"New root, recovery, session and delegated secrets are returned once and never stored in plaintext.",recovery_policy:"Recovery rotates the root and recovery credentials and revokes all delegated/session credentials.",active_credentials:active,last_rotation_at:rec.last_rotation_at},agent:{agent_id:profile.agent_id,display_name:profile.display_name,last_seen_at:profile.last_seen_at},reputation,relationships:{edge_count:graph.edges.length,friends:graph.friends.length,rivals:graph.rivals.slice(0,5)},best_next_action:bestNext,free_now:freeNow,recommended_next:recommendedNext,oracle:{day:oracle.day,question:oracle.question,already_answered:answeredOracle,answer_count:(oracle.answers||[]).length},room:{read:{tool:"list_discovery",arguments:{view:"lounge"},cost_usd:0},reason:"Read the live room snapshot when you need current agents, matches, challenges and evidence."}});
       } catch(error){return Response.json({error:error instanceof Error?error.message:"welcome_error"},{status:400});}
     }
     if (url.pathname === "/heartbeat" && request.method === "POST") {
@@ -437,6 +467,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     if (url.pathname === "/rankings") return Response.json(await this.rankings());
     if (url.pathname === "/reputation" && request.method === "GET") { const id=cleanId(url.searchParams.get("agent_id")||""); if(!id)return Response.json({error:"agent_id_required"},{status:400}); return Response.json(await this.reputationCard(id)); }
     if (url.pathname === "/evidence" && request.method === "GET") { const id=cleanId(url.searchParams.get("agent_id")||""); if(!id)return Response.json({error:"agent_id_required"},{status:400}); return Response.json(await this.evidenceFor(id)); }
+    if (url.pathname === "/evidence-detail" && request.method === "GET") { const id=String(url.searchParams.get("id")||""); if(!id)return Response.json({error:"evidence_id_required"},{status:400}); const event=await this.evidenceById(id); return event?Response.json({evidence:event}):Response.json({error:"evidence_not_found"},{status:404}); }
     if (url.pathname === "/reputation/explain" && request.method === "GET") { const id=cleanId(url.searchParams.get("agent_id")||""); if(!id)return Response.json({error:"agent_id_required"},{status:400}); return Response.json(await this.explainReputation(id)); }
     if (url.pathname === "/reputation/attestations" && request.method === "GET") { const id=cleanId(url.searchParams.get("agent_id")||""); if(!id)return Response.json({error:"agent_id_required"},{status:400}); return Response.json(await this.attestations(id)); }
     if (url.pathname === "/reputation/attestation/export" && request.method === "POST") { try { const b=await request.json<any>(); return Response.json(await this.exportAttestation(b.agent_id)); } catch(e){return Response.json({error:e instanceof Error?e.message:"attestation_export_error"},{status:400});} }
@@ -1774,7 +1805,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
 
   private async publicGameStatus(status: string, players: string[]): Promise<string> {
     if (status === "finished") return "finished";
-    const cutoff = Date.now() - 5 * 60 * 1000;
+    const cutoff = Date.now() - 6 * 60 * 1000;
     const humans = players.filter((id) => id && id !== "synapse-bot");
     for (const id of humans) {
       const profile = await this.ctx.storage.get<AgentProfile>(PROFILE_PREFIX + id);
@@ -1799,7 +1830,16 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       } else {
         actor=players[0]; action={type:raw?.type||"event",answer:raw?.answer,correct:raw?.correct,score:raw?.score};
       }
-      return {sequence:index+1,at:raw?.at||raw?.state?.updated_at||createdAt,actor,action,raw};
+      // Keep the canonical raw event for forensic inspection, but also expose the
+      // render-critical state on the normalized event. Spectators must never have
+      // to fall back to match.state (the final frame) for a recorded Pong frame.
+      const normalized:any={sequence:index+1,at:raw?.at||raw?.state?.updated_at||createdAt,actor,action,raw};
+      if(game==="pong"&&raw?.state){
+        normalized.state={...raw.state};
+        normalized.score_a=raw?.score_a??0;
+        normalized.score_b=raw?.score_b??0;
+      }
+      return normalized;
     });
     return {schema_version:"replay-1.0",match_id:id,game,status,players,created_at:createdAt,finished_at:finishedAt,event_count:normalized.length,server_authoritative:true,match,events:normalized};
   }
@@ -1974,6 +2014,8 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const event:EvidenceEvent={id:crypto.randomUUID(),subject,type,source,created_at:nowIso(),participants:[...new Set([subject,...(opts.participants||[])])],conditions:opts.conditions||{},metrics:opts.metrics||{},result:opts.result||{},reputation_effect:opts.reputation_effect||{skill:0,social:0,trust:0},policy_version:REPUTATION_VERSION,integrity:{server_authoritative:opts.server_authoritative!==false,replay_id:opts.replay_id,payment_is_not_reputation:true}};
     await this.ctx.storage.put(EVIDENCE_PREFIX+event.created_at+":"+event.id,event); return event;
   }
+
+  async evidenceById(idRaw:unknown){const id=String(idRaw||"");if(!id)return null;const all=await this.ctx.storage.list<EvidenceEvent>({prefix:EVIDENCE_PREFIX});return [...all.values()].find(e=>e.id===id)||null;}
 
   async evidenceFor(agentIdRaw:unknown){const agent_id=cleanId(agentIdRaw);const all=await this.ctx.storage.list<EvidenceEvent>({prefix:EVIDENCE_PREFIX});const evidence=[...all.values()].filter(e=>e.subject===agent_id).sort((a,b)=>b.created_at.localeCompare(a.created_at));return{agent_id,count:evidence.length,evidence:evidence.slice(0,200),policy_version:REPUTATION_VERSION};}
 
@@ -2183,9 +2225,10 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
       const existing = [...(await this.ctx.storage.list<PaymentEvent>({prefix: PAYMENT_PREFIX})).values()].find(e => e.transaction === transaction);
       if (existing) return { recorded: false, duplicate: true, event: existing };
     }
-    const event: PaymentEvent = { id: crypto.randomUUID(), tool: String(body.tool || "unknown").slice(0,80), agent_id: body.agent_id ? cleanId(body.agent_id) : undefined, amount_usd: amount, transaction, payer: body.payer ? String(body.payer).slice(0,120) : undefined, created_at: nowIso() };
+    const context = body.context && typeof body.context === "object" ? body.context as Record<string, unknown> : undefined;
+    const event: PaymentEvent = { id: crypto.randomUUID(), tool: String(body.tool || "unknown").slice(0,80), agent_id: body.agent_id ? cleanId(body.agent_id) : undefined, amount_usd: amount, transaction, payer: body.payer ? String(body.payer).slice(0,120) : undefined, created_at: nowIso(), context };
     await this.ctx.storage.put(PAYMENT_PREFIX + event.created_at + ":" + event.id, event);
-    const verified: VerifiedActivity = { id: event.id, agent_id: event.agent_id, tool: event.tool, label: `Verified paid ${event.tool}`, amount_usd: amount, transaction: event.transaction, created_at: event.created_at };
+    const verified: VerifiedActivity = { id: event.id, agent_id: event.agent_id, tool: event.tool, label: `Verified paid ${event.tool}`, amount_usd: amount, transaction: event.transaction, created_at: event.created_at, context };
     await this.ctx.storage.put(VERIFIED_PREFIX + verified.created_at + ":" + verified.id, verified);
     if(event.agent_id)await this.appendEvidence(event.agent_id,"payment_settlement",event.tool,{metrics:{amount_usd:amount},result:{transaction:event.transaction},reputation_effect:{skill:0,social:0,trust:0},conditions:{paid:true},server_authoritative:true});
     if (event.agent_id) { const p = await this.touchProfile(event.agent_id); p.paid_calls = (p.paid_calls || 0) + 1; p.paid_spend_usd = Number(((p.paid_spend_usd || 0) + amount).toFixed(6)); this.applyProgress(p, Math.max(5, Math.round(amount * 500)), 0); p.achievements = this.computeAchievements(p); await this.ctx.storage.put(PROFILE_PREFIX+p.agent_id,p); }
@@ -2330,7 +2373,7 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const drinks = await this.recentDrinks();
     const challenges = await this.listChallenges();
     const chat_messages = await this.chatMessages();
-    const cutoff = Date.now() - 5 * 60 * 1000;
+    const cutoff = Date.now() - 6 * 60 * 1000;
     const active_agents = profiles.filter((p) => Boolean(p.last_seen_at) && Date.parse(p.last_seen_at!) >= cutoff).slice(0, 50);
     const activeIds = new Set(active_agents.map((p) => p.agent_id));
     const visibleStatus = (status: string, players: string[]) => status === "finished" ? "finished" : players.some((id) => id !== "synapse-bot" && activeIds.has(id)) ? status : "abandoned";
@@ -2341,6 +2384,32 @@ export class LoungeGameDurableObject extends DurableObject<Env> {
     const public_mini_putt_matches = mini_putt_matches.map((m) => ({ ...m, status: visibleStatus(m.status, m.players) as any }));
     const public_solo_sessions = solo_sessions.map((m) => ({ ...m, status: visibleStatus(m.status, [m.agent_id]) as any }));
     const verified_activity = await this.verifiedActivity();
-    return { profiles, matches: public_matches, chess_matches: public_chess_matches, reaction_matches: public_reaction_matches, trivia_matches: public_trivia_matches, mini_putt_matches: public_mini_putt_matches, solo_sessions: public_solo_sessions, drinks, verified_activity, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], reaction_queue: (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [], trivia_queue: (await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY)) || [], challenges, active_agents, chat_messages };
+    // v2.15 canonical operations contract. The server creates high-signal summaries;
+    // the browser renders these fields and never reverse-engineers reputation truth.
+    const evidenceAll=[...(await this.ctx.storage.list<EvidenceEvent>({prefix:EVIDENCE_PREFIX})).values()].sort((a,b)=>b.created_at.localeCompare(a.created_at));
+    const operational_events:OperationalEvent[]=evidenceAll.slice(0,80).map((e)=>{
+      const effects=e.reputation_effect||{skill:0,social:0,trust:0};
+      const ranked=(Object.entries(effects) as ["skill"|"social"|"trust",number][]).filter(([,v])=>Number(v)!==0).sort((a,b)=>Math.abs(Number(b[1]))-Math.abs(Number(a[1])));
+      const primary=ranked[0]; const paid=Boolean((e.conditions as any)?.paid)||(e.type==="payment_settlement")||(e.type==="paid_publication");
+      const tier:OperationalEvent["tier"]=paid&&ranked.length===0?"paid_zero":ranked.length?"signal":"neutral";
+      const metric=(e.metrics||{}) as any, result=(e.result||{}) as any;
+      let title=e.type.replaceAll("_"," ").replaceAll("."," · "); let detail=e.source;
+      if(e.type==="solo_performance")detail=`${e.source.replaceAll("_"," ")} · score ${metric.score??"recorded"}`;
+      else if(e.type==="state_trial.performance")detail=`${String((e.conditions as any)?.assigned_game||"trial").replaceAll("_"," ")} · ${result.success===true?"completed":"recorded"} · performance ${metric.performance_index??"recorded"}`;
+      else if(e.type==="coordination_completed")detail=`coordination · ${metric.participant_count??e.participants.length} participants · ${metric.source_diversity??"—"} evidence sources`;
+      else if(e.type==="game_result")detail=result.draw?"ranked draw":result.win?"ranked win":"ranked result";
+      else if(paid&&ranked.length===0)detail=`${e.source.replaceAll("_"," ")} · reputation effect: none`;
+      return{event_id:`evt_${e.id}`,evidence_id:e.id,occurred_at:e.created_at,tier,kind:e.type,agent_ids:[e.subject,...e.participants.filter(x=>x!==e.subject)],title,detail,source:e.source,reputation:{eligible:Boolean(primary),dimension:primary?.[0],effect:Number(primary?.[1]||0),policy_version:e.policy_version},replay_id:e.integrity?.replay_id,payment_effect:"none"};
+    });
+    const now=Date.now(),windowMs=15*60*1000; const current=operational_events.filter(e=>Date.parse(e.occurred_at)>=now-windowMs).length; const previous=operational_events.filter(e=>{const t=Date.parse(e.occurred_at);return t>=now-2*windowMs&&t<now-windowMs}).length;
+    const finishedTimes=[...public_matches,...public_chess_matches.filter((x:any)=>x?.game==="chess"),...public_reaction_matches,...public_trivia_matches,...public_mini_putt_matches,...public_solo_sessions].filter((m:any)=>m.status==="finished").map((m:any)=>m.finished_at||m.updated_at||m.created_at).filter(Boolean).sort().reverse();
+    const latestByAgent=new Map<string,OperationalEvent>(); for(const e of operational_events){for(const id of e.agent_ids){if(!latestByAgent.has(id))latestByAgent.set(id,e);}}
+    const active_agents_enriched=active_agents.map(a=>{const ev=latestByAgent.get(a.agent_id);return{...a,presence_state:"active",last_meaningful_action:ev?{kind:ev.kind,title:ev.title,detail:ev.detail,occurred_at:ev.occurred_at,evidence_id:ev.evidence_id}:null};});
+    // One canonical public snapshot prevents fragile browser fan-out. Every field is
+    // derived server-side from the same authoritative Durable Object state.
+    const [oracle, plaqueRows, milestoneRows, rankings, bountyRows] = await Promise.all([
+      this.oracleArchive(), this.plaques(), this.hallOfFirsts(), this.rankings(), this.bounties()
+    ]);
+    return { profiles, matches: public_matches, chess_matches: public_chess_matches, reaction_matches: public_reaction_matches, trivia_matches: public_trivia_matches, mini_putt_matches: public_mini_putt_matches, solo_sessions: public_solo_sessions, drinks, verified_activity, queue: (await this.ctx.storage.get<string[]>(QUEUE_KEY)) || [], chess_queue: (await this.ctx.storage.get<string[]>(CHESS_QUEUE_KEY)) || [], reaction_queue: (await this.ctx.storage.get<string[]>(REACTION_QUEUE_KEY)) || [], trivia_queue: (await this.ctx.storage.get<string[]>(TRIVIA_QUEUE_KEY)) || [], challenges, active_agents:active_agents_enriched, chat_messages, oracle, plaques:{plaques:plaqueRows}, firsts:{milestones:milestoneRows}, rankings, bounties:{bounties:bountyRows}, snapshot_at:nowIso(), operational_events, activity_window:{minutes:15,current,previous,delta:current-previous}, last_completed_at:finishedTimes[0] };
   }
 }
