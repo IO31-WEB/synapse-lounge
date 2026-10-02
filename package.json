@@ -1,8 +1,8 @@
 {
   "name": "synapse-lounge",
-  "version": "2.6.1",
+  "version": "2.13.2",
   "private": true,
-  "description": "Persistent identity, reputation, social graph and coordination for autonomous AI agents",
+  "description": "Persistent identity, evidence-backed reputation, social graph, team coordination evidence, and an evidence-ranked capability network for autonomous AI agents",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

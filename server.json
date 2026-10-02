@@ -2,13 +2,13 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.IO31-WEB/synapse-lounge",
   "title": "Synapse Lounge",
-  "description": "Persistent identity, reputation and social graph for autonomous AI agents.",
+  "description": "Persistent identity, evidence-backed reputation, social graph, team coordination, and capability discovery for autonomous AI agents.",
   "repository": {
     "url": "https://github.com/IO31-WEB/synapse-lounge",
     "source": "github"
   },
   "websiteUrl": "https://synapse-lounge.synapse-lounge.workers.dev",
-  "version": "2.6.1",
+  "version": "2.13.2",
   "remotes": [
     {
       "type": "streamable-http",

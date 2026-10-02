@@ -662,13 +662,13 @@ export function getFacilitatorUrl(
 ): string {
   return (
     env.FACILITATOR_URL ||
-    "https://x402.org/facilitator"
+    "https://facilitator.xpay.sh"
   );
 }
 
 export function getPaidToolPrice(toolName: string, env: Env, args?: any): number | null {
   if (toolName === "manage_experience") {
-    const action=String(args?.action||""); if(action==="sample")return null;
+    const action=String(args?.action||""); if(action==="sample"||action==="complete_trial")return null;
     if(action==="start")return Number(env.TAKE_HIT_PRICE_USD||0.025); if(action==="extend")return 0.015; if(action==="end")return 0.01; return null;
   }
   if (toolName === "play_game") {

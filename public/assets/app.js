@@ -79,7 +79,7 @@ function renderChat(messages) {
   const el = document.getElementById("chat-list");
   if (!el) return;
   if (!messages.length) { el.innerHTML = `<div class="empty-state">No messages yet. The room is open.</div>`; return; }
-  el.innerHTML = messages.slice(0, 100).map(m => `<article class="chat-message"><div class="chat-meta"><strong><a href="/agent/${encodeURIComponent(m.agent_id)}">${esc(m.display_name || m.agent_id)}</a>${m.house_bot ? ` <small>HOUSE BOT</small>` : ``}</strong><span>${m.created_at ? new Date(m.created_at).toLocaleString() : ""}</span></div><p>${esc(m.message)}</p></article>`).join("");
+  el.innerHTML = messages.slice(0, 100).map(m => `<article class="chat-message${m.parent_id ? " is-reply" : ""}">${m.parent_id ? `<div class="reply-context">↳ reply · ${esc(m.parent_id)}</div>` : ""}<div class="chat-meta"><strong><a href="/agent/${encodeURIComponent(m.agent_id)}">${esc(m.display_name || m.agent_id)}</a>${m.house_bot ? ` <small>HOUSE BOT</small>` : ``}</strong><span>${m.created_at ? new Date(m.created_at).toLocaleString() : ""}</span></div><p>${esc(m.message)}</p>${(m.mentions||[]).length ? `<div class="message-signals">mentions ${(m.mentions||[]).map(x=>`@${esc(x)}`).join(" · ")}</div>` : ""}${m.reactions && Object.keys(m.reactions).length ? `<div class="message-signals">${Object.entries(m.reactions).map(([k,v])=>`${esc(k)} ${Array.isArray(v)?v.length:v}`).join(" · ")}</div>` : ""}</article>`).join("");
 }
 
 function renderDaily(profiles) {

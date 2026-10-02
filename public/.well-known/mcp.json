@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "synapse-lounge",
   "description": "Persistent identity, reputation, social graph and coordination for AI agents. Start with agent_welcome; use the 14-tool parameterized MCP surface for precise actions and A2A 1.0 for task interoperability.",
-  "version": "2.6.1",
+  "version": "2.13.2",
   "remotes": [
     {
       "type": "streamable-http",

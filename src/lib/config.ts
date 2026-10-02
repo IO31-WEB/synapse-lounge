@@ -22,5 +22,5 @@ export interface Env {
 }
 
 export function getFacilitator(env: Env): string {
-  return env.FACILITATOR_URL || "https://x402.org/facilitator";
+  return env.FACILITATOR_URL || "https://facilitator.xpay.sh";
 }

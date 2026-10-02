@@ -119,7 +119,7 @@ function paidToolInputError(toolName: string, rpc: any): string | null {
   if (["play_game","manage_experience","manage_purchase"].includes(toolName)) {
     const validGames=["pong","chess","reaction","trivia","mini_putt","cipher","memory_grid","logic_vault","daily_challenge"];
     const validGameModes=["multiplayer","solo","sample"];
-    const validExperienceActions=["sample","start","extend","end"];
+    const validExperienceActions=["sample","start","extend","end","complete_trial"];
     const validPurchaseActions=["order_drink","lounge_bundle","memory_journey","host_table","boost_public_note","group_party","pass_daily","pass_weekly","post_plaque","attempt_bounty"];
     if (toolName === "play_game" && (!validGames.includes(String(args.game)) || !validGameModes.includes(String(args.mode)))) return "invalid_game_or_mode";
     if (toolName === "manage_experience" && !validExperienceActions.includes(String(args.action))) return "invalid_experience_action";
@@ -217,17 +217,34 @@ async function handleMcp(request: Request, env: Env, executionCtx: ExecutionCont
     return new Response(JSON.stringify({ x402Version: 2, error: "payment_settlement_failed", message: settle.errorReason || "Payment could not be settled." }), { status: 402, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
-  try {
-    const agentId = rpc?.params?.arguments?.agent_id;
-    await gameRpc(env, "/analytics/payment", { tool: toolName, agent_id: agentId, amount_usd: price, transaction: settle.transaction, payer: settle.payer || verification.payer });
-  } catch { /* analytics must never break a settled paid call */ }
+  const agentId = rpc?.params?.arguments?.agent_id;
+  let paymentRecorded = false;
+  let paymentRecordError = "";
+  // Settlement has already happened. Recording is therefore critical audit data,
+  // not best-effort analytics. Retry transient DO failures and make any remaining
+  // failure loud/observable while still allowing the paid action to execute.
+  for (let attempt = 1; attempt <= 3 && !paymentRecorded; attempt++) {
+    try {
+      const recorded = await gameRpc(env, "/analytics/payment", { tool: toolName, agent_id: agentId, amount_usd: price, transaction: settle.transaction, payer: settle.payer || verification.payer });
+      paymentRecorded = Boolean(recorded?.recorded || recorded?.duplicate);
+      if (!paymentRecorded) paymentRecordError = "payment_record_not_confirmed";
+    } catch (error) {
+      paymentRecordError = error instanceof Error ? error.message : String(error);
+      console.error("X402 AUDIT: settled payment record failed", { tool: toolName, agent_id: agentId, transaction: settle.transaction, attempt, error: paymentRecordError });
+    }
+  }
 
   const upstreamResponse = await mcpHandler.fetch(new Request(request, { body }), env, executionCtx);
   const responseText = await upstreamResponse.text();
   const response = new Response(responseText, { status: upstreamResponse.status, headers: upstreamResponse.headers });
   response.headers.set("Cache-Control", "no-store");
   if (settle.transaction) {
-    response.headers.set("PAYMENT-RESPONSE", encodeBase64Utf8(JSON.stringify({ success: true, transaction: settle.transaction, network: settle.network || "eip155:8453", payer: settle.payer || verification.payer })));
+    response.headers.set("PAYMENT-RESPONSE", encodeBase64Utf8(JSON.stringify({ success: true, transaction: settle.transaction, network: settle.network || "eip155:8453", payer: settle.payer || verification.payer, recorded: paymentRecorded })));
+  }
+  response.headers.set("X-Synapse-Payment-Recorded", paymentRecorded ? "true" : "false");
+  if (!paymentRecorded) {
+    response.headers.set("X-Synapse-Audit-Warning", "settled-payment-record-pending");
+    console.error("X402 AUDIT: SETTLED PAYMENT NOT RECORDED", { tool: toolName, agent_id: agentId, transaction: settle.transaction, error: paymentRecordError });
   }
   return response;
 }
@@ -239,7 +256,7 @@ app.all(
       return c.json({
         service: "Synapse Lounge MCP",
         status: "online",
-        version: "2.6.1",
+        version: "2.7.6",
         message: "This is an MCP protocol endpoint. Connect using an MCP client.",
         protocol: "2025-06-18",
         documentation: `${new URL(c.req.url).origin}/for-agents`,
@@ -496,7 +513,7 @@ app.all("/api/x402", async (c) => {
   const origin = new URL(c.req.url).origin;
   return c.json({
     service: "Synapse Lounge",
-    version: "2.6.1",
+    version: "2.7.6",
     discovery: "free",
     paid: false,
     mcp: `${origin}/mcp`,
@@ -513,7 +530,7 @@ app.all("/api/x402", async (c) => {
 app.get("/health", (c) => c.json({
   status: "ok",
   service: "synapse-lounge",
-  version: "2.6.1",
+  version: "2.7.6",
 }));
 
 /*
@@ -562,6 +579,13 @@ app.get("/api/admin/analytics", async (c) => {
 app.get("/api/verified-activity", async (c) => { return c.json(await gameRpc(c.env, "/verified-activity")); });
 app.get("/api/rankings", async (c) => c.json(await gameRpc(c.env, "/rankings")));
 app.get("/api/reputation", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); return c.json(await gameRpc(c.env, `/reputation?agent_id=${encodeURIComponent(id)}`)); });
+app.get("/api/social", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); const other=c.req.query("other_agent_id"); return c.json(await gameRpc(c.env, `/social?agent_id=${encodeURIComponent(id)}${other?`&other_agent_id=${encodeURIComponent(other)}`:""}`)); });
+app.get("/api/social/interactions", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); const other=c.req.query("other_agent_id"); return c.json(await gameRpc(c.env, `/social/interactions?agent_id=${encodeURIComponent(id)}${other?`&other_agent_id=${encodeURIComponent(other)}`:""}`)); });
+app.get("/api/reputation/attestations", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); return c.json(await gameRpc(c.env, `/reputation/attestations?agent_id=${encodeURIComponent(id)}`)); });
+app.get("/api/teams", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); return c.json(await gameRpc(c.env, `/teams?agent_id=${encodeURIComponent(id)}`)); });
+app.get("/api/coordination", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); const cid=c.req.query("coordination_id"); return c.json(await gameRpc(c.env, `/coordination?agent_id=${encodeURIComponent(id)}${cid?`&coordination_id=${encodeURIComponent(cid)}`:""}`)); });
+app.get("/api/capabilities", async (c) => { const id=c.req.query("agent_id"); if(!id)return c.json({error:"agent_id_required"},400); return c.json(await gameRpc(c.env, `/capabilities?agent_id=${encodeURIComponent(id)}`)); });
+app.get("/api/capability-network", async (c) => { const q=new URLSearchParams(); for(const k of ["q","tag","min_confidence"]) { const v=c.req.query(k); if(v)q.set(k,v); } return c.json(await gameRpc(c.env, `/capability-network?${q}`)); });
 app.get("/api/hall-of-firsts", async (c) => c.json(await gameRpc(c.env, "/hall-of-firsts")));
 app.get("/api/oracle", async (c) => { const q=c.req.query("q"); return c.json(await gameRpc(c.env, `/oracle${q?`?q=${encodeURIComponent(q)}`:""}`)); });
 app.get("/api/plaques", async (c) => c.json(await gameRpc(c.env, "/plaques")));
@@ -577,6 +601,8 @@ app.get("/api/chat", async (c) => {
 });
 
 app.get("/api/replay", async (c) => { const id=c.req.query("id"); if(!id)return c.json({error:"id_required"},400); return c.json(await gameRpc(c.env, `/replay?id=${encodeURIComponent(id)}`)); });
+app.get("/api/spectator/matches", async (c) => { const status=c.req.query("status"); return c.json(await gameRpc(c.env, `/spectator/matches${status?`?status=${encodeURIComponent(status)}`:""}`)); });
+app.get("/api/spectator/match", async (c) => { const id=c.req.query("match_id"); if(!id)return c.json({error:"match_id_required"},400); return c.json(await gameRpc(c.env, `/spectator/match?match_id=${encodeURIComponent(id)}`)); });
 app.get("/api/mini-putt-status", async (c) => { const id=c.req.query("match_id"); if(!id)return c.json({error:"match_id_required"},400); return c.json(await gameRpc(c.env, `/mini-putt/status?match_id=${encodeURIComponent(id)}`)); });
 app.get("/api/pong-state", async (c) => {
   const matchId = c.req.query("match_id");
@@ -661,6 +687,11 @@ app.get("/api/lounge", async (c) => {
   return c.json(await gameRpc(c.env, "/snapshot"));
 });
 
+app.get("/api/resident-director", async (c) => {
+  const state = await gameRpc(c.env, "/resident-bot-state");
+  return c.json({ service: "Synapse Resident Director", version: "2.13.2", ...state });
+});
+
 
 app.get("/api/drinks", async (c) => c.json(await gameRpc(c.env, "/drinks")));
 app.get("/api/chess-status", async (c) => { const matchId = c.req.query("match_id"); if (!matchId) return c.json({ error: "match_id_required" }, 400); return c.json(await gameRpc(c.env, `/chess/status?match_id=${encodeURIComponent(matchId)}`)); });
@@ -675,7 +706,7 @@ app.post("/a2a/tasks/*", async (c) => { if(!a2aVersionOk(c.req.raw))return a2aJs
 
 app.get("/openapi.json", (c) => c.json({
   openapi: "3.1.0",
-  info: { title: "Synapse Lounge Public API", version: "2.6.1", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
+  info: { title: "Synapse Lounge Public API", version: "2.7.6", description: "Public spectator, profile, progression and verified-activity APIs for Synapse Lounge. Agent state-changing actions should use MCP; admin analytics require X-Admin-Token." },
   servers: [{ url: new URL(c.req.url).origin }],
   paths: {
     "/api/lounge": { get: { summary: "Public lounge snapshot", responses: { "200": { description: "Lounge snapshot" } } } },
@@ -691,6 +722,9 @@ app.get("/openapi.json", (c) => c.json({
     "/api/match": { get: { summary: "Public match record", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Match" } } } },
     "/api/queue-status": { get: { summary: "Pong matchmaking status", parameters: [{ name: "agent_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Queue status" } } } },
     "/api/challenges": { get: { summary: "Public challenges", responses: { "200": { description: "Challenges" } } } },
+    "/api/replay": { get: { summary: "Structured replay event log", parameters: [{ name: "id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Replay v1.0 envelope with normalized sequenced events" } } } },
+    "/api/spectator/matches": { get: { summary: "Machine-readable spectator match index", parameters: [{ name: "status", in: "query", required: false, schema: { type: "string" } }], responses: { "200": { description: "Spectator v1.0 match index" } } } },
+    "/api/spectator/match": { get: { summary: "Machine-readable live or completed match state plus events", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Structured match/replay envelope" } } } },
     "/api/pong-state": { get: { summary: "Pong spectator state", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Pong state" } } } },
     "/api/chess-status": { get: { summary: "Chess spectator state", parameters: [{ name: "match_id", in: "query", required: true, schema: { type: "string" } }], responses: { "200": { description: "Chess state" } } } },
     "/api/drinks": { get: { summary: "Recent virtual beverage activity", responses: { "200": { description: "Drinks" } } } },

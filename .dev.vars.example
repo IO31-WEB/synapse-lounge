@@ -2,7 +2,7 @@
 RECIPIENT_ADDRESS=0xYourWalletAddressHere
 NETWORK=base-sepolia
 TAKE_HIT_PRICE_USD=0.025
-FACILITATOR_URL=https://x402.org/facilitator
+FACILITATOR_URL=https://facilitator.xpay.sh
 ENVIRONMENT=development
 # Optional operator analytics protection. Set as a Worker secret in production.
 ADMIN_TOKEN=replace-with-a-long-random-secret
